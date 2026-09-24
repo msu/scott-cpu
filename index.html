@@ -1,0 +1,1716 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scott CPU</title>
+<!--
+  A gate-level emulator of the computer from "But How Do It Know?".
+  Design of the computer copyright John Clark Scott 2009, www.buthowdoitknow.com.
+
+  One file, no dependencies. The script builds the circuit and its drawing
+  from the same description, so a wire on the screen is a net in the machine.
+-->
+<style>
+  :root {
+    --ink: #1f2933;
+    --line: #8fa3bb;
+    --page: #dde5ee;
+    --paper: #ffffff;
+    --off: #9aa5b1;
+    --on: #e60000;
+
+    --gp-fill: #e9f2fd;   --gp-edge: #2f6fb5;   --gp-ink: #10355f;
+    --alu-fill: #fff3e3;  --alu-edge: #c8791a;  --alu-ink: #6b3d06;
+    --ctrl-fill: #e8f6ed; --ctrl-edge: #2f8a4f; --ctrl-ink: #17482a;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; margin: 0; }
+
+  body {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    background: var(--page);
+    color: var(--ink);
+    font: 13px Arial, Helvetica, sans-serif;
+  }
+
+  /* --- toolbar --- */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+    padding: 6px 10px;
+  }
+  .toolbar .group { display: flex; align-items: center; gap: 4px; }
+  .toolbar .spacer { flex: 1; }
+  button {
+    font: inherit;
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: linear-gradient(#fff, #eef3f9);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--gp-edge); background: #e4edf8; }
+  #run { border-color: var(--ctrl-edge); color: var(--ctrl-ink); }
+  #stop, #reset { border-color: var(--alu-edge); color: var(--alu-ink); }
+  input[type=number] { width: 64px; font: inherit; }
+  .status {
+    padding: 3px 12px;
+    border: 1px solid var(--gp-edge);
+    border-radius: 999px;
+    background: var(--gp-fill);
+    color: var(--gp-ink);
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .credit { color: #5a6673; font-size: 11px; }
+
+  /* --- page layout --- */
+  main {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    min-height: 0;
+    padding: 0 8px 8px;
+  }
+  #machine {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    background: var(--paper);
+    border-radius: 10px;
+    box-shadow: 0 2px 14px rgba(31, 41, 51, 0.18);
+  }
+  #program {
+    display: grid;
+    grid-template-rows: auto 1fr auto 1fr auto;
+    gap: 6px;
+    width: 300px;
+    min-height: 0;
+    padding: 10px;
+    background: var(--paper);
+    border-radius: 10px;
+    box-shadow: 0 2px 14px rgba(31, 41, 51, 0.18);
+  }
+  #program.closed { display: none; }
+  #program h2 { margin: 0; font-size: 13px; }
+  #program textarea, #program pre {
+    margin: 0;
+    padding: 6px;
+    min-height: 0;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fbfdff;
+    font: 12px ui-monospace, Menlo, Consolas, monospace;
+    resize: none;
+    white-space: pre;
+  }
+  #listing .error { color: #b00020; white-space: pre-wrap; }
+  #program .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  dialog { max-width: 520px; border: 1px solid var(--line); border-radius: 8px; }
+  dialog pre { font: 12px ui-monospace, Menlo, Consolas, monospace; }
+
+  /* --- the drawing --- */
+  svg text { font-family: Arial, Helvetica, sans-serif; fill: var(--ink); }
+  .wire { fill: none; stroke: var(--off); stroke-width: 1.6; stroke-linejoin: round; }
+  .wire.on { stroke: var(--on); stroke-width: 2.4; }
+  .dot { fill: var(--off); }
+  .dot.on { fill: var(--on); }
+  .gate { fill: #fbfdff; stroke: var(--off); stroke-width: 1.6; }
+  .gate.on { stroke: var(--on); stroke-width: 2.4; }
+  .box { fill: #d9dee5; stroke: #6b7785; stroke-width: 1.4; }
+  .box.on { stroke: var(--on); stroke-width: 2.6; }
+  .label { font-size: 11px; font-weight: 700; }
+  .small { font-size: 8.5px; font-weight: 700; }
+  .wl { font-size: 8.5px; font-weight: 700; }   /* a wire's name */
+  .es { font-size: 11px; font-weight: 700; }    /* an enable or set entry */
+  .clickable { cursor: pointer; }
+  .clickable:hover { stroke: rgba(255, 138, 0, 0.9); }
+  .mid { text-anchor: middle; dominant-baseline: central; }
+  .end { text-anchor: end; }
+  .none { pointer-events: none; }
+
+  .module { stroke-width: 5; rx: 4; }
+  .module.alu { fill: #fdf6ec; stroke: var(--alu-edge); }
+  .module.ctrl { fill: #eff4fb; stroke: var(--gp-edge); }
+  .module.ram { fill: #f0f8f3; stroke: var(--ctrl-edge); }
+  .module-name { font-size: 15px; font-weight: 700; opacity: 0.55; }
+
+  .alu-op { fill: #ffeed6; stroke: var(--alu-edge); stroke-width: 2; }
+  .alu-op.on { stroke: var(--on); stroke-width: 3; }
+  .alu-op-name { font-size: 15px; font-weight: 700; fill: var(--alu-ink); }
+
+  /* Registers: three families, by the job the register does. */
+  .reg .plate, .reg .tab { stroke-width: 3; }
+  .reg .name, .reg .digit { font-weight: 700; }
+  .reg .name { font-size: 15px; }
+  .reg .digit { font-size: 22px; }
+  .reg .cell { fill: transparent; stroke: rgba(31, 41, 51, 0.25); stroke-width: 1; cursor: pointer; }
+  .reg .cell:hover { fill: rgba(255, 138, 0, 0.22); }
+  .reg.latching .plate { stroke: var(--on); }
+  .reg.gp .plate, .reg.gp .tab { fill: var(--gp-fill); stroke: var(--gp-edge); }
+  .reg.gp text { fill: var(--gp-ink); }
+  .reg.alu .plate, .reg.alu .tab { fill: var(--alu-fill); stroke: var(--alu-edge); }
+  .reg.alu text { fill: var(--alu-ink); }
+  .reg.ctrl .plate, .reg.ctrl .tab { fill: var(--ctrl-fill); stroke: var(--ctrl-edge); }
+  .reg.ctrl text { fill: var(--ctrl-ink); }
+
+  /* A wide transparent copy of a control wire. A click holds the wire on. */
+  .hit { fill: none; stroke: transparent; stroke-width: 12; cursor: pointer; }
+  .hit:hover { stroke: rgba(255, 138, 0, 0.3); }
+  .hit.held { stroke: rgba(255, 138, 0, 0.45); }
+
+  /* Memory */
+  .ram-cell { fill: #f4faf6; stroke: #6fa189; stroke-width: 0.8; }
+  .ram-cell.used { fill: #ffffff; }
+  .ram-cell.selected { fill: #ffe3e3; stroke: var(--on); stroke-width: 2.4; }
+  .ram-text { font: 12.5px ui-monospace, Menlo, Consolas, monospace; fill: #234536; }
+  .ram-bit { fill: transparent; cursor: pointer; }
+  .ram-bit:hover { fill: rgba(255, 138, 0, 0.3); }
+  .ram-head { font-size: 10px; fill: #234536; }
+</style>
+</head>
+<body>
+<header class="toolbar">
+  <div class="group">
+    <button id="run">run</button>
+    <button id="stop">stop</button>
+    <button id="reset" title="Clear the registers. Memory stays.">reset</button>
+  </div>
+  <div class="group">
+    <button id="back" title="Undo the last tick">back tick</button>
+    <button id="tick" title="One quarter of a step">tick</button>
+    <button id="step" title="One stepper step, 4 ticks">step</button>
+    <button id="instruction" title="One instruction, 6 steps">instruction</button>
+  </div>
+  <div class="group">
+    <label for="speed">steps / s</label>
+    <input id="speed" type="number" min="1" max="200" value="2">
+  </div>
+  <div class="group">
+    <label for="wire-color">wire</label>
+    <input id="wire-color" type="color" value="#e60000">
+  </div>
+  <span class="status" id="status">stopped</span>
+  <span class="spacer"></span>
+  <span class="credit">Computer design &copy; John Clark Scott 2009, buthowdoitknow.com</span>
+  <button id="help">help</button>
+  <button id="toggle-program">program</button>
+</header>
+
+<main>
+  <svg id="machine" viewBox="-4 -8 1938 1252" preserveAspectRatio="xMidYMid meet"></svg>
+  <aside id="program">
+    <h2>program</h2>
+    <textarea id="source" spellcheck="false"></textarea>
+    <div class="row">
+      <button id="assemble" title="Assemble and load into memory">assemble &amp; load</button>
+      <label for="origin">at</label>
+      <input id="origin" type="number" min="0" max="255" value="0">
+    </div>
+    <pre id="listing"></pre>
+    <div class="row">
+      <button id="sample">sample: 5 x 5</button>
+      <button id="clear-ram">clear memory</button>
+    </div>
+  </aside>
+</main>
+
+<dialog id="help-dialog">
+  <pre id="help-text"></pre>
+  <form method="dialog"><button>close</button></form>
+</dialog>
+
+<script type="module">
+// ---------------------------------------------------------------------------
+// 1. The simulator
+//
+// A net is one wire. A part reads nets and drives nets. settle() runs every
+// part until no net changes. Registers are transparent latches, as in the
+// book: while "set" is on, the register follows its input.
+//
+// Bit order follows the book: bit 0 is the most significant bit.
+// ---------------------------------------------------------------------------
+
+class Net {
+  constructor(name) {
+    this.name = name
+    this.value = false   // what the machine drives
+    this.held = false    // a presenter holds the wire on
+    this.els = []        // the SVG elements that show this net
+  }
+  get on() { return this.value || this.held }
+}
+
+class Circuit {
+  nets = new Map()
+  parts = []
+  changed = false
+
+  net(name) {
+    if (!this.nets.has(name)) this.nets.set(name, new Net(name))
+    return this.nets.get(name)
+  }
+  word(name, n = 8) {
+    return Array.from({ length: n }, (_, i) => this.net(`${name}${i}`))
+  }
+  add(part) {
+    this.parts.push(part)
+    return part
+  }
+  drive(net, value) {
+    value = Boolean(value)
+    if (net.value !== value) {
+      net.value = value
+      this.changed = true
+    }
+  }
+  driveWord(nets, value) {
+    nets.forEach((net, i) => this.drive(net, (value >> (nets.length - 1 - i)) & 1))
+  }
+  // A latch loop that never settles is possible with held wires. Real
+  // hardware oscillates too, so the loop stops after a fixed count.
+  settle() {
+    for (let pass = 0; pass < 200; pass++) {
+      this.changed = false
+      for (const part of this.parts) part.update(this)
+      if (!this.changed) return
+    }
+  }
+}
+
+const read = nets => nets.reduce((value, net) => (value << 1) | (net.on ? 1 : 0), 0)
+
+class Gate {
+  constructor(kind, inputs, out) {
+    Object.assign(this, { kind, inputs, out })
+  }
+  update(c) {
+    const ins = this.inputs.map(net => net.on)
+    const value = {
+      and: () => ins.every(Boolean),
+      or: () => ins.some(Boolean),
+      not: () => !ins[0],
+      nand: () => !ins.every(Boolean),
+    }[this.kind]()
+    c.drive(this.out, value)
+  }
+}
+
+class Decoder {
+  constructor(inputs, outs, enable = null) {
+    Object.assign(this, { inputs, outs, enable })
+  }
+  update(c) {
+    const active = !this.enable || this.enable.on
+    const selected = read(this.inputs)
+    this.outs.forEach((net, i) => c.drive(net, active && i === selected))
+  }
+}
+
+// A transparent latch. With "outs" the value is always visible on those nets.
+// With "enable" the value goes to a bus only while enable is on.
+class Register {
+  value = 0
+  constructor({ name, inputs, set, outs = null, enable = null, bus = null }) {
+    Object.assign(this, { name, inputs, set, outs, enable })
+    bus?.drivers.push(() => (this.enable.on ? this.value : 0))
+  }
+  update(c) {
+    if (this.set.on) {
+      const next = read(this.inputs)
+      if (next !== this.value) {
+        this.value = next
+        c.changed = true
+      }
+    }
+    if (this.outs) c.driveWord(this.outs, this.value)
+  }
+  reset() { this.value = 0 }
+}
+
+// Several parts share a bus. A part that is not enabled drives zeros, so the
+// bus is the OR of its drivers.
+class Bus {
+  drivers = []
+  constructor(nets) { this.nets = nets }
+  update(c) {
+    c.driveWord(this.nets, this.drivers.reduce((value, driver) => value | driver(), 0))
+  }
+}
+
+// The "bus 1" part: passes its input, or the constant 1 while "one" is on.
+class BusOne {
+  constructor(inputs, one, outs) {
+    Object.assign(this, { inputs, one, outs })
+  }
+  update(c) {
+    c.driveWord(this.outs, this.one.on ? 1 : read(this.inputs))
+  }
+}
+
+// The order of the ALU decoder outputs. Operation 7 is CMP: no block is
+// enabled, so the ALU output is zero and only the flags matter.
+const ALU_OPS = ['ADD', 'SHR', 'SHL', 'NOT', 'AND', 'OR', 'XOR']
+
+class Alu {
+  constructor(nets) {
+    // nets: a, b, op, carryIn, select[8], blockOut{name: word}, out,
+    //       carryOut, larger, equal, zero
+    Object.assign(this, nets)
+  }
+  update(c) {
+    const a = read(this.a)
+    const b = read(this.b)
+    const cin = this.carryIn.on ? 1 : 0
+    const sum = a + b + cin
+    const results = {
+      ADD: [sum & 0xff, sum > 0xff],
+      SHR: [(a >> 1) | (cin << 7), a & 1],
+      SHL: [((a << 1) & 0xff) | cin, a & 0x80],
+      NOT: [~a & 0xff, false],
+      AND: [a & b, false],
+      OR: [a | b, false],
+      XOR: [a ^ b, false],
+    }
+    const selected = read(this.op)
+    this.select.forEach((net, i) => c.drive(net, i === selected))
+    let out = 0
+    let carry = false
+    ALU_OPS.forEach((name, i) => {
+      const [value, carryBit] = results[name]
+      c.driveWord(this.blockOut[name], value)
+      if (i === selected) {
+        out = value
+        carry = Boolean(carryBit)
+      }
+    })
+    c.driveWord(this.out, out)
+    c.drive(this.carryOut, carry)
+    c.drive(this.larger, a > b)
+    c.drive(this.equal, a === b)
+    c.drive(this.zero, out === 0)
+  }
+}
+
+class Ram {
+  cells = new Uint8Array(256)
+  onWrite = () => {}
+  constructor({ address, rows, cols, inputs, set, enable, bus }) {
+    Object.assign(this, { address, rows, cols, inputs, set, enable })
+    bus.drivers.push(() => (this.enable.on ? this.cells[this.selected] : 0))
+  }
+  get selected() { return read(this.address) }
+  update(c) {
+    const address = this.selected
+    this.rows.forEach((net, i) => c.drive(net, i === address >> 4))
+    this.cols.forEach((net, i) => c.drive(net, i === (address & 15)))
+    if (this.set.on) {
+      const next = read(this.inputs)
+      if (next !== this.cells[address]) {
+        this.cells[address] = next
+        c.changed = true
+        this.onWrite(address)
+      }
+    }
+  }
+}
+
+// The clock and the stepper keep their own state, so tick() moves them and
+// the circuit then settles. The stepper moves on the rising edge of clk,
+// which is the same edge that turns clk e on. One step is 4 ticks:
+//   tick 1: clk on, clk e on, the stepper moves to the next step
+//   tick 2: clk s on
+//   tick 3: clk off, clk s off
+//   tick 4: clk e off; the stepper still shows the old step
+// After a reset the stepper already shows step 1, so the first rising edge
+// does not move it.
+class Sequencer {
+  phase = 0
+  step = 0
+  started = false
+  constructor({ clk, clkE, clkS, steps }) {
+    Object.assign(this, { clk, clkE, clkS, steps })
+  }
+  tick() {
+    this.phase = (this.phase + 1) % 4
+    if (this.phase === 1) {
+      if (this.started) this.step = (this.step + 1) % 6
+      this.started = true
+    }
+  }
+  update(c) {
+    c.drive(this.clk, this.phase === 1 || this.phase === 2)
+    c.drive(this.clkE, this.phase !== 0)
+    c.drive(this.clkS, this.phase === 2)
+    this.steps.forEach((net, i) => c.drive(net, i === this.step))
+  }
+  reset() {
+    this.phase = 0
+    this.step = 0
+    this.started = false
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 2. Drawing
+//
+// Every wire, dot and gate is bound to a net. render() gives the "on" class
+// to the elements of each net that is on. Nothing else colours the drawing.
+// ---------------------------------------------------------------------------
+
+const SVG_NS = 'http://www.w3.org/2000/svg'
+const root = document.querySelector('#machine')
+
+function el(tag, attrs = {}, parent = root, text = null) {
+  const node = document.createElementNS(SVG_NS, tag)
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value)
+  if (text !== null) node.textContent = text
+  parent.appendChild(node)
+  return node
+}
+
+// Later layers draw over earlier ones. Wires end under the shapes they feed.
+const layers = Object.fromEntries(
+  ['modules', 'wires', 'shapes', 'text', 'hits'].map(name => [name, el('g', { class: name })]))
+
+const views = []   // functions that redraw state that is not a net
+
+function bind(node, net) {
+  net.els.push(node)
+  return node
+}
+
+const wire = (net, d) => bind(el('path', { class: 'wire', d }, layers.wires), net)
+const dot = (net, x, y) => bind(el('circle', { class: 'dot', cx: x, cy: y, r: 2.6 }, layers.wires), net)
+const ribbon = (nets, path) => nets.forEach((net, i) => wire(net, path(i)))
+const label = (x, y, text, cls = 'label') => el('text', { x, y, class: `${cls} none` }, layers.text, text)
+const box = (x, y, w, h, cls = 'box') => el('rect', { x, y, width: w, height: h, class: cls }, layers.shapes)
+
+function boxWithLabel(x, y, w, h, text, cls = 'label mid') {
+  const rect = box(x, y, w, h)
+  label(x + w / 2, y + h / 2, text, cls)
+  return rect
+}
+
+// A gate at (x, y), the middle of its input edge. dir is the way it points:
+// r, d, l or u. Returns the pin positions: { ins: [[x, y], ...], out: [x, y] }.
+const GATE_W = 22
+const ANGLE = { r: 0, d: 90, l: 180, u: 270 }
+
+function gate(kind, x, y, dir, out, { n = 2, pitch = 6 } = {}) {
+  const h = Math.max(14, (n - 1) * pitch + 8)
+  const r = h / 2
+  const w = kind === 'not' ? 14 : GATE_W
+  const shapes = {
+    and: `M0 ${-r} H${w - 7} A7 ${r} 0 0 1 ${w - 7} ${r} H0 Z`,
+    nand: `M0 ${-r} H${w - 7} A7 ${r} 0 0 1 ${w - 7} ${r} H0 Z`,
+    or: `M0 ${-r} Q${w * 0.6} ${-r} ${w} 0 Q${w * 0.6} ${r} 0 ${r} Q5 0 0 ${-r} Z`,
+    not: `M0 -7 L${w} 0 L0 7 Z`,
+  }
+  const bubble = kind === 'not' || kind === 'nand'
+  const g = el('g', { transform: `translate(${x} ${y}) rotate(${ANGLE[dir]})` }, layers.shapes)
+  bind(el('path', { class: 'gate', d: shapes[kind] }, g), out)
+  if (bubble) bind(el('circle', { class: 'gate', cx: w + 3, cy: 0, r: 3 }, g), out)
+
+  const place = (lx, ly) => ({
+    r: [x + lx, y + ly], d: [x - ly, y + lx], l: [x - lx, y - ly], u: [x + ly, y - lx],
+  })[dir]
+  const ins = Array.from({ length: n }, (_, i) => place(3, (i - (n - 1) / 2) * pitch))
+  return { ins, out: place(bubble ? w + 6 : w, 0) }
+}
+
+// A transparent, wide copy of a wire. A click holds the wire on, and a second
+// click lets it go. Two held enables put the OR of two values on the bus.
+// Wires in the same group are exclusive: a hold on one releases the others.
+const holds = new Map()   // net -> the hit elements of the net
+const holdGroup = new Map()   // net -> group name
+
+function holdable(net, d, group = null) {
+  const node = el('path', { class: 'hit', d }, layers.hits)
+  el('title', {}, node, `${net.name}: click to hold this wire on`)
+  if (group) holdGroup.set(net, group)
+  node.addEventListener('click', () => {
+    const wasHeld = net.held
+    if (group) for (const [other, g] of holdGroup) if (g === group) other.held = false
+    net.held = !wasHeld
+    refresh()
+  })
+  if (!holds.has(net)) holds.set(net, [])
+  holds.get(net).push(node)
+}
+
+// A control wire: drawn, and holdable.
+function control(net, d, group = null) {
+  wire(net, d)
+  holdable(net, d, group)
+}
+
+function render() {
+  for (const net of circuit.nets.values()) {
+    if (net.shown === net.on) continue
+    net.shown = net.on
+    for (const node of net.els) {
+      node.classList.toggle('on', net.on)
+      // A wire that is on goes over the wires that are off.
+      if (net.on && node.parentNode === layers.wires) layers.wires.appendChild(node)
+    }
+  }
+  for (const [net, nodes] of holds) {
+    for (const node of nodes) node.classList.toggle('held', net.held)
+  }
+  for (const view of views) view()
+}
+
+function refresh() {
+  circuit.settle()
+  render()
+}
+
+// A register: a name tab and one cell per bit. A click on a cell flips the bit.
+const CELL = 28
+const REG_H = 40
+
+// A vertical register can have wide cells (cellW) that hold a word above
+// each digit. Its tab is then as wide as the cells.
+function drawRegister(reg, { x, y, role, bits = 8, cell = CELL, tab = 'top', letters = null, vertical = false, cellW = null }) {
+  const w = vertical ? (cellW ?? cell) : cell * bits
+  const h = vertical ? cell * bits : REG_H
+  const g = el('g', { class: `reg ${role}` }, layers.shapes)
+  if (tab === 'vertical') {
+    // A narrow tab above the plate, with the name reading upward.
+    const tabH = reg.name.length * 9 + 12
+    el('rect', { class: 'tab', x, y: y - tabH, width: 18, height: tabH, rx: 3 }, g)
+    el('text', { class: 'name mid none', transform: `translate(${x + 9} ${y - tabH / 2}) rotate(-90)` }, g, reg.name)
+  } else {
+    const tabW = cellW ? w : reg.name.length * 11 + 14
+    const tabY = tab === 'top' ? y - 20 : y + h
+    el('rect', { class: 'tab', x, y: tabY, width: tabW, height: 20, rx: 3 }, g)
+    const name = el('text', { class: 'name mid none', x: x + tabW / 2, y: tabY + 10 }, g, reg.name)
+    if (cellW) name.style.fontSize = '12px'
+  }
+  el('rect', { class: 'plate', x, y, width: w, height: h }, g)
+
+  const digits = []
+  for (let i = 0; i < bits; i++) {
+    const cx = vertical ? x : x + i * cell
+    const cy = vertical ? y + i * cell : y
+    const ch = vertical ? cell : h
+    const digitY = cellW ? cy + ch / 2 + 6 : cy + ch / 2 + 1
+    const digit = el('text', { class: 'digit mid none', x: cx + (vertical ? w : cell) / 2, y: digitY }, g, '0')
+    if (vertical) digit.style.fontSize = cellW ? '15px' : '16px'
+    if (letters && cellW) el('text', { class: 'wl mid none', x: cx + w / 2, y: cy + 8 }, g, letters[i])
+    else if (letters) el('text', { class: 'small none', x: cx + 2, y: cy + 8 }, g, letters[i])
+    digits.push(digit)
+    const hit = el('rect', { class: 'cell', x: cx, y: cy, width: vertical ? w : cell, height: ch }, g)
+    el('title', {}, hit, `${reg.name} bit ${i}: click to flip`)
+    hit.addEventListener('click', () => {
+      reg.value ^= 1 << (bits - 1 - i)
+      refresh()
+    })
+  }
+  views.push(() => {
+    const text = reg.value.toString(2).padStart(bits, '0')
+    digits.forEach((digit, i) => { digit.textContent = text[i] })
+    g.classList.toggle('latching', reg.set.on)
+  })
+  return { x, y, w, h, cx: x + w / 2, cy: y + h / 2, cellX: i => x + i * cell + cell / 2 }
+}
+
+// ---------------------------------------------------------------------------
+// 3. The machine: bus, registers and ALU
+//
+// Each section makes its parts and draws them. Coordinates are in the units
+// of the viewBox, 1920 wide.
+// ---------------------------------------------------------------------------
+
+const circuit = new Circuit()
+const net = name => circuit.net(name)
+const registers = []
+
+function register(options, drawing) {
+  const reg = circuit.add(new Register(options))
+  registers.push(reg)
+  reg.shape = drawRegister(reg, drawing)
+  return reg
+}
+
+function module(x, y, w, h, role, name, at = 'bottom-left') {
+  el('rect', { class: `module ${role}`, x, y, width: w, height: h }, layers.modules)
+  const attrs = at === 'top-left'
+    ? { x: x + 10, y: y + 24, class: 'module-name' }
+    : { x: x + 10, y: y + h - 10, class: 'module-name' }
+  el('text', attrs, layers.modules, name)
+}
+
+// --- the bus: a ring of 8 wires. Wire 0 is the outside wire. ---------------
+const STEP = 5
+const BUS = { top: 2, left: 6, bottom: 917, right: 1924 }
+const busNets = circuit.word('bus')
+const bus = circuit.add(new Bus(busNets))
+
+ribbon(busNets, i => {
+  const o = i * STEP
+  return `M${BUS.left + o} ${BUS.top + o} H${BUS.right - o} V${BUS.bottom - o} H${BUS.left + o} Z`
+})
+
+// A tap is 8 wires from a part to the ring. Each wire ends on its own ring
+// wire, with a dot. x or y is the position of wire 0 of the tap.
+const tap = {
+  top(x, y) {
+    ribbon(busNets, i => `M${x + i * STEP} ${BUS.top + i * STEP} V${y}`)
+    busNets.forEach((n, i) => dot(n, x + i * STEP, BUS.top + i * STEP))
+  },
+  bottom(x, y) {
+    ribbon(busNets, i => `M${x + i * STEP} ${BUS.bottom - i * STEP} V${y}`)
+    busNets.forEach((n, i) => dot(n, x + i * STEP, BUS.bottom - i * STEP))
+  },
+  right(x, y) {
+    ribbon(busNets, i => `M${BUS.right - i * STEP} ${y + i * STEP} H${x}`)
+    busNets.forEach((n, i) => dot(n, BUS.right - i * STEP, y + i * STEP))
+  },
+}
+const TAP_W = 7 * STEP
+
+// --- TMP and bus 1 ------------------------------------------------------------
+const tmpOut = circuit.word('tmp')
+const aluB = circuit.word('alu b')
+const TMP = { x: 90, y: 72 }
+const tmp = register(
+  { name: 'TMP', inputs: busNets, set: net('TMP s'), outs: tmpOut },
+  { ...TMP, role: 'alu' })
+const B_X = tmp.shape.cx - TAP_W / 2          // wire 0 of the B trunk
+tap.top(B_X, TMP.y)
+ribbon(tmpOut, i => `M${B_X + i * STEP} ${TMP.y + REG_H} V126`)
+circuit.add(new BusOne(tmpOut, net('bus 1'), aluB))
+bind(boxWithLabel(B_X - 10, 124, TAP_W + 20, 22, 'BUS 1'), net('bus 1'))
+
+// --- the ALU -------------------------------------------------------------------
+const ALU = {
+  x: 60, y: 160, w: 490, h: 604,
+  aX: 115,            // wire 0 of the A trunk, the right-hand wire
+  blockX: 236, blockW: 100, blockH: 74, pitch: 78, top: 168,
+  eX: 361, eW: 25,
+  outX: 431,          // wire 0 of the output trunk
+  laneX: 474,         // decoder select lanes, right of the trunk
+  carryX: 498, equalX: 504, largerX: 510,
+  decX: 514, decW: 30,
+}
+module(ALU.x, ALU.y, ALU.w, ALU.h, 'alu', 'ALU')
+
+const DRAW_ORDER = ['XOR', 'OR', 'AND', 'NOT', 'SHR', 'SHL', 'ADD']
+const TWO_INPUT = new Set(['XOR', 'OR', 'AND', 'ADD'])
+const HAS_CARRY = new Set(['SHR', 'SHL', 'ADD'])
+
+const aluNets = {
+  a: busNets,
+  b: aluB,
+  op: circuit.word('alu op', 3),
+  carryIn: net('carry in'),
+  select: circuit.word('alu select', 8),
+  blockOut: Object.fromEntries(ALU_OPS.map(name => [name, circuit.word(`${name} out`)])),
+  out: circuit.word('alu out'),
+  carryOut: net('carry out'),
+  larger: net('a larger'),
+  equal: net('equal'),
+  zero: net('zero'),
+}
+circuit.add(new Alu(aluNets))
+
+function opShape(name, x, top, w, h) {
+  const bot = top + h
+  const cy = top + h / 2
+  const r = x + w
+  return {
+    XOR: `M${x} ${top} Q${x + w * 0.7} ${top} ${r} ${cy} Q${x + w * 0.7} ${bot} ${x} ${bot} Q${x + 18} ${cy} ${x} ${top} Z`,
+    OR: `M${x} ${top} Q${x + w * 0.7} ${top} ${r} ${cy} Q${x + w * 0.7} ${bot} ${x} ${bot} Q${x + 18} ${cy} ${x} ${top} Z`,
+    AND: `M${x} ${top} H${r - 37} A37 ${h / 2} 0 0 1 ${r - 37} ${bot} H${x} Z`,
+    NOT: `M${x} ${top} L${r} ${cy - 22} V${cy + 22} L${x} ${bot} Z`,
+    // The shifters lean the way the bits move: bit 0 is the top wire, so a
+    // shift right moves every bit one wire down.
+    SHR: `M${x} ${top} L${r} ${top + 16} V${bot} L${x} ${bot - 16} Z`,
+    SHL: `M${x} ${top + 16} L${r} ${top} V${bot - 16} L${x} ${bot} Z`,
+    ADD: `M${x} ${top} L${r} ${top + 6} V${bot - 6} L${x} ${bot} V${cy + 9} L${x + 14} ${cy} L${x} ${cy - 9} Z`,
+  }[name]
+}
+
+const blocks = DRAW_ORDER.map((name, k) => {
+  const top = ALU.top + k * ALU.pitch
+  return { name, top, cy: top + ALU.blockH / 2, select: aluNets.select[ALU_OPS.indexOf(name)] }
+})
+const lastBlock = blocks.at(-1)
+const aTapY = (block, i) => block.top + (TWO_INPUT.has(block.name) ? 1 : 19.5) + i * STEP
+const bTapY = (block, i) => block.top + 38 + i * STEP
+const outY = (block, i) => block.cy - TAP_W / 2 + i * STEP
+
+// The A trunk comes from the left side of the ring. The B trunk comes from bus 1.
+const A_TAP_Y = 166   // above the first XOR tap, so every tap sits on the trunk
+ribbon(busNets, i =>
+  `M${BUS.left + i * STEP} ${A_TAP_Y + i * STEP} H${ALU.aX - i * STEP} V${aTapY(lastBlock, i)}`)
+busNets.forEach((n, i) => dot(n, BUS.left + i * STEP, A_TAP_Y + i * STEP))
+ribbon(aluB, i => `M${B_X + i * STEP} 146 V${bTapY(lastBlock, i)}`)
+
+// The output trunk runs down to ACC.
+const ACC = { x: ALU.outX + TAP_W / 2 - CELL * 4, y: 818 }
+ribbon(aluNets.out, i => `M${ALU.outX + i * STEP} ${outY(blocks[0], i)} V${ACC.y}`)
+
+for (const block of blocks) {
+  const { name, top, cy, select } = block
+  const last = block === lastBlock
+  // XOR and OR have a curved input edge, so their wires run deeper.
+  const inX = ALU.blockX + (name === 'XOR' || name === 'OR' ? 22 : 12)
+  ribbon(busNets, i => `M${ALU.aX - i * STEP} ${aTapY(block, i)} H${inX}`)
+  if (!last) busNets.forEach((n, i) => dot(n, ALU.aX - i * STEP, aTapY(block, i)))
+  if (TWO_INPUT.has(name)) {
+    ribbon(aluB, i => `M${B_X + i * STEP} ${bTapY(block, i)} H${inX}`)
+    if (!last) aluB.forEach((n, i) => dot(n, B_X + i * STEP, bTapY(block, i)))
+  }
+
+  bind(el('path', { class: 'alu-op', d: opShape(name, ALU.blockX, top, ALU.blockW, ALU.blockH) },
+    layers.shapes), select)
+  label(ALU.blockX + 45, cy, name, 'alu-op-name mid')
+
+  // block -> enabler -> output trunk
+  const carry = HAS_CARRY.has(name)
+  const eTop = cy - 23
+  const eH = 46
+  ribbon(aluNets.blockOut[name], i => `M${ALU.blockX + 70} ${outY(block, i)} H${ALU.eX}`)
+  ribbon(aluNets.out, i => `M${ALU.eX + ALU.eW} ${outY(block, i)} H${ALU.outX + i * STEP}`)
+  if (block !== blocks[0]) aluNets.out.forEach((n, i) => dot(n, ALU.outX + i * STEP, outY(block, i)))
+  bind(boxWithLabel(ALU.eX, eTop, ALU.eW, eH, 'E'), select)
+  if (carry) {
+    // The carry leaves where the shifted-out bit is: the bottom for SHR
+    // and ADD, the top for SHL. Either way it passes clear of the enabler.
+    const y = name === 'SHL' ? top + 8 : top + 66
+    wire(aluNets.carryOut, `M${ALU.blockX + 70} ${y} H${ALU.carryX}`)
+    if (name === 'SHL') dot(aluNets.carryOut, ALU.carryX, y)   // SHR and ADD end the trunk
+  }
+}
+
+// The 3x8 decoder picks one enabler. Each select runs down a lane right of
+// the output trunk, then crosses the trunk once, just above its own block's
+// output ribbon. The lanes nest outward from the decoder, so no select
+// crosses another lane. The upper and lower blocks never overlap in height,
+// so they share the three lanes.
+const DEC = { y: 330, h: 140 }
+boxWithLabel(ALU.decX, DEC.y, ALU.decW, DEC.h, '3x8')
+const decOutY = [8, 16, 24, 32, 108, 116, 124, 132].map(dy => DEC.y + dy)
+const SELECT_LANE = { AND: 0, OR: 1, XOR: 2, NOT: 0, SHR: 0, SHL: 1, ADD: 2 }
+blocks.forEach((block, k) => {
+  const laneX = ALU.laneX + SELECT_LANE[block.name] * 8
+  const pinX = ALU.eX + ALU.eW / 2
+  const y = decOutY[k]
+  // cy - 36 keeps clear of the SHL carry out, which leaves at cy - 29.
+  wire(block.select, `M${ALU.decX} ${y} H${laneX} V${block.cy - 36} H${pinX} V${block.cy - 23}`)
+})
+label(ALU.decX + 2, decOutY[7] + 3, 'cmp', 'wl')
+
+// Carry, equal and a-larger run down the right of the output trunk to FLAGS.
+const FLAGS = { x: 588, y: 610, cell: 30, w: 44 }
+const flagY = i => FLAGS.y + FLAGS.cell * i + FLAGS.cell / 2
+const shr = blocks.find(b => b.name === 'SHR')
+// The carry trunk runs from SHR down to ADD, and a T at the flag height
+// goes to FLAGS.
+const add = blocks.find(b => b.name === 'ADD')
+wire(aluNets.carryOut, `M${ALU.carryX} ${shr.top + 66} V${add.top + 66}`)
+wire(aluNets.carryOut, `M${ALU.carryX} ${flagY(0)} H${FLAGS.x}`)
+dot(aluNets.carryOut, ALU.carryX, flagY(0))
+wire(aluNets.larger, `M${ALU.blockX + 20} ${blocks[0].top + 66} H${ALU.largerX} V${flagY(1)} H${FLAGS.x}`)
+wire(aluNets.equal, `M${ALU.blockX + 20} ${blocks[0].top + 71} H${ALU.equalX} V${flagY(2)} H${FLAGS.x}`)
+label(ALU.blockX + 108, blocks[0].top + 64, 'a larger', 'wl')
+label(ALU.blockX + 108, blocks[0].top + 79, 'equal', 'wl')
+
+// Z is on when every output wire is off.
+const Z_BOX = { x: 476, y: 712, w: 35, h: 43 }
+ribbon(aluNets.out, i => `M${ALU.outX + i * STEP} ${716 + i * STEP} H${Z_BOX.x}`)
+aluNets.out.forEach((n, i) => dot(n, ALU.outX + i * STEP, 716 + i * STEP))
+bind(boxWithLabel(Z_BOX.x, Z_BOX.y, Z_BOX.w, Z_BOX.h, 'Z'), aluNets.zero)
+wire(aluNets.zero, `M${Z_BOX.x + Z_BOX.w} 733 H580 V${flagY(3)} H${FLAGS.x}`)
+
+// The carry input goes to the three blocks that use it.
+const CARRY_LANE = 235
+const CARRY_Y = 788   // clear of the ACC name tab below
+// The carry enters SHR at the top: it becomes bit 0, the top wire.
+wire(aluNets.carryIn, `M596 ${CARRY_Y} H${CARRY_LANE} V${shr.top + 12} H${ALU.blockX + 8}`)
+for (const block of blocks.filter(b => b.name === 'SHL' || b.name === 'ADD')) {
+  // SHL takes the carry low on its left edge, but clear of the carry wire
+  // that runs to FLAGS at the same height.
+  const y = block.name === 'ADD' ? block.cy : block.top + 60
+  wire(aluNets.carryIn, `M${CARRY_LANE} ${y} H${ALU.blockX + 16}`)
+  dot(aluNets.carryIn, CARRY_LANE, y)
+}
+label(CARRY_LANE + 4, CARRY_Y - 4, 'carry in', 'wl')
+
+// --- ACC, FLAGS and the carry latch -------------------------------------------------
+const acc = register(
+  { name: 'ACC', inputs: aluNets.out, set: net('ACC s'), enable: net('ACC e'), bus },
+  { ...ACC, role: 'alu' })
+tap.bottom(ALU.outX, ACC.y + REG_H)
+
+const flagOut = ['flag C', 'flag A', 'flag E', 'flag Z'].map(net)
+const flags = register(
+  { name: 'FLAGS', inputs: [aluNets.carryOut, aluNets.larger, aluNets.equal, aluNets.zero],
+    set: net('FLAGS s'), outs: flagOut },
+  { ...FLAGS, role: 'alu', bits: 4, vertical: true, cellW: FLAGS.w, letters: ['carry', 'larger', 'equal', 'zero'] })
+
+// The carry flag feeds the ALU, and the ALU sets the carry flag. The latch
+// keeps the old carry steady while FLAGS takes the new one.
+const C_TMP = { x: 626, y: 786, w: 24, h: 24 }
+const carryLatch = circuit.add(new Register(
+  { name: 'C TMP', inputs: [flagOut[0]], set: net('TMP s'), outs: [net('c tmp')] }))
+registers.push(carryLatch)
+bind(box(C_TMP.x, C_TMP.y, C_TMP.w, C_TMP.h), net('c tmp'))
+label(C_TMP.x + 12, C_TMP.y + 12, 'C', 'label mid')
+label(C_TMP.x + 27, C_TMP.y + 8, 'tmp', 'wl')
+
+// ---------------------------------------------------------------------------
+// 4. The control unit
+//
+// The control logic is two tables. TERMS says when something happens: a
+// stepper step ANDed with an instruction class. OUTPUTS says what happens:
+// each control wire is the OR of its terms, ANDed with clk e or clk s.
+//
+// The drawing is the same two tables. The AND plane is in the middle: one
+// gate per term, its inputs on columns to the right. The OR plane is on the
+// left, and the finished control wires leave it at the bottom. IR sits at the
+// bottom right under the class decoder, and its bits rise to feed the columns.
+// ---------------------------------------------------------------------------
+
+const CU = { x: 668, y: 126, w: 1210, h: 748 }
+module(CU.x, CU.y, CU.w, CU.h, 'ctrl', 'CONTROL UNIT')
+
+// --- IR -------------------------------------------------------------------------
+const irOut = circuit.word('ir')
+const IR = { x: 1534, y: 806 }
+const ir = register(
+  { name: 'IR', inputs: busNets, set: net('IR s'), outs: irOut },
+  { ...IR, role: 'ctrl', tab: 'bottom' })
+tap.bottom(ir.shape.cx - TAP_W / 2, IR.y + REG_H)
+const irX = i => ir.shape.cellX(i)
+// Bits 4 to 7 jog 20 px right just above the register, which leaves room
+// for a wider class decoder. irCol(i) is the x of the wire that rises.
+const IR_JOG = 20
+const irJogY = i => 786 + (i - 4) * 5
+const irCol = i => (i < 4 ? irX(i) : irX(i) + IR_JOG)
+const irTop = Array(8).fill(IR.y)   // how far up each bit's wire runs
+const irTaps = []                    // [bit, y] of every branch, for the dots
+function irBranch(i, y, d) {
+  if (d) wire(irOut[i], `M${irCol(i)} ${y} ${d}`)
+  irTop[i] = Math.min(irTop[i], y)
+  irTaps.push([i, y])
+}
+
+// --- clock and stepper ---------------------------------------------------------
+const steps = ['s1', 's2', 's3', 's4', 's5', 's6'].map(net)
+const sequencer = circuit.add(new Sequencer(
+  { clk: net('clk'), clkE: net('clk e'), clkS: net('clk s'), steps }))
+
+// The clock sits left of the OR plane, so clk e and clk s reach the clock
+// gates with no crossing. The stepper sits above the rows; its steps run down.
+const CLOCK = { x: 696, y: 655, w: 60, h: 45 }
+const STEPPER = { x: 1420, y: 292, w: 90, h: 28 }
+const CLK_E = { y: 686 }
+const CLK_S = { y: 676 }
+{
+  // A click on the clock moves it one phase. A click on the stepper moves it
+  // one step. Both leave the rest of the machine alone.
+  const clock = box(CLOCK.x, CLOCK.y, CLOCK.w, CLOCK.h, 'box clickable')
+  el('title', {}, clock, 'click: next clock phase')
+  clock.addEventListener('click', () => {
+    remember()
+    sequencer.phase = (sequencer.phase + 1) % 4
+    refresh()
+  })
+  label(CLOCK.x + CLOCK.w / 2, CLOCK.y + 12, 'CLOCK', 'label mid')
+  const stepper = boxWithLabel(STEPPER.x, STEPPER.y, STEPPER.w, STEPPER.h, 'STEPPER')
+  stepper.setAttribute('class', 'box clickable')
+  el('title', {}, stepper, 'click: next step')
+  stepper.addEventListener('click', () => {
+    remember()
+    sequencer.step = (sequencer.step + 1) % 6
+    sequencer.started = true
+    refresh()
+  })
+}
+wire(net('clk'), `M726 ${CLOCK.y} V306 H${STEPPER.x}`)
+label(730, 648, 'clk', 'wl')
+label(CLOCK.x + CLOCK.w - 3, CLK_S.y + 3, 'clk s', 'wl end')
+label(CLOCK.x + CLOCK.w - 3, CLK_E.y + 3, 'clk e', 'wl end')
+
+// --- the AND plane columns --------------------------------------------------------
+// name -> { net, x, feed }. A column runs from its feed, above or below the
+// rows, to the farthest row that uses it.
+const columns = new Map()
+const column = (name, n, x, feed) => columns.set(name, { net: n, x, feed, lo: Infinity, hi: -Infinity })
+const useColumn = (col, y) => {
+  col.lo = Math.min(col.lo, y)
+  col.hi = Math.max(col.hi, y)
+}
+
+// ir0 on means an ALU instruction. If ir0 is off, ir1 to ir3 pick the class.
+const CLASSES = ['LD', 'ST', 'DATA', 'JMPR', 'JMP', 'JCAEZ', 'CLF', 'IO']
+const IDEC = { x: 1568, y: 696, w: 106, h: 34 }
+const notIr0 = net('not ir0')
+const classNets = CLASSES.map(net)
+circuit.add(new Gate('not', [irOut[0]], notIr0))
+circuit.add(new Decoder(irOut.slice(1, 4), classNets, notIr0))
+boxWithLabel(IDEC.x, IDEC.y, IDEC.w, IDEC.h, '3x8')
+{
+  // The enable is a NOT on bit 0, above the REG lanes. Its output enters the
+  // decoder from the left side.
+  const pins = gate('not', irX(0), 728, 'u', notIr0)
+  irBranch(0, pins.ins[0][1])
+  wire(notIr0, `M${pins.out[0]} ${pins.out[1]} V${IDEC.y + 8} H${IDEC.x}`)
+}
+// Bits 1 to 3 rise straight into the decoder.
+;[1, 2, 3].forEach(i => irBranch(i, IDEC.y + IDEC.h))
+CLASSES.forEach((name, k) => column(name, classNets[k], IDEC.x + 8 + k * 13, IDEC.y))
+steps.forEach((n, k) => column(n.name, n, STEPPER.x + 15 + k * 12, STEPPER.y + STEPPER.h))
+
+// The ALU column leaves bit 0 below the op branches and rises left of the steps.
+const ALU_BRANCH_Y = 800
+irBranch(0, ALU_BRANCH_Y, 'H1420')
+column('ALU', irOut[0], 1420, ALU_BRANCH_Y)
+
+// CMP is ALU operation 111. It must not write its result to a register.
+// Its NAND taps the three op branches below.
+const notCmp = net('not CMP')
+circuit.add(new Gate('nand', irOut.slice(1, 4), notCmp))
+const cmpGate = gate('nand', 1400, 730, 'u', notCmp, { n: 3, pitch: 5 })
+column('!CMP', notCmp, cmpGate.out[0], cmpGate.out[1])
+const MATCH_X = 1822
+column('MATCH', net('match'), MATCH_X, 720)
+
+// --- the ALU operation wires ------------------------------------------------------
+// op = ir1..ir3, but only during step 5 of an ALU instruction. The three bits
+// run along the bottom of the control unit to the gates beside the ALU.
+const aluEnable = net('ALU en')
+const ALU_EN_X = 665
+const opGateY = k => 370 + k * 30
+const OP_BRANCH_Y = k => 796 - k * 4
+;[1, 2, 3].forEach((i, k) => {
+  const y = opGateY(k)
+  const laneX = 678 + k * 5
+  const pins = gate('and', 658, y, 'l', aluNets.op[k])
+  circuit.add(new Gate('and', [irOut[i], aluEnable], aluNets.op[k]))
+  irBranch(i, OP_BRANCH_Y(k), `H${laneX} V${pins.ins[1][1]} H${pins.ins[1][0]}`)
+  const [cx, cy] = cmpGate.ins[k]
+  wire(irOut[i], `M${cx} ${OP_BRANCH_Y(k)} V${cy}`)
+  dot(irOut[i], cx, OP_BRANCH_Y(k))
+  wire(aluEnable, `M${ALU_EN_X} ${pins.ins[0][1]} H${pins.ins[0][0]}`)
+  if (k > 0) dot(aluEnable, ALU_EN_X, pins.ins[0][1])
+  control(aluNets.op[k], `M${pins.out[0]} ${y} H${ALU.decX + ALU.decW}`)
+})
+label(ALU.decX + ALU.decW - 3, opGateY(0) - 6, 'op', 'wl end')
+
+// --- the two tables ---------------------------------------------------------------
+const TERMS = {
+  'fetch 1': ['s1'],
+  'fetch 2': ['s2'],
+  'fetch 3': ['s3'],
+  'ALU 4': ['s4', 'ALU'],
+  'ALU 5': ['s5', 'ALU'],
+  'ALU 6': ['s6', 'ALU', '!CMP'],
+  'LD 4': ['s4', 'LD'],
+  'LD 5': ['s5', 'LD'],
+  'ST 4': ['s4', 'ST'],
+  'ST 5': ['s5', 'ST'],
+  'DATA 4': ['s4', 'DATA'],
+  'DATA 5': ['s5', 'DATA'],
+  'DATA 6': ['s6', 'DATA'],
+  'JMPR 4': ['s4', 'JMPR'],
+  'JMP 4': ['s4', 'JMP'],
+  'JMP 5': ['s5', 'JMP'],
+  'JCAEZ 4': ['s4', 'JCAEZ'],
+  'JCAEZ 5': ['s5', 'JCAEZ'],
+  'JCAEZ 6': ['s6', 'JCAEZ', 'MATCH'],
+  'CLF 4': ['s4', 'CLF'],
+}
+
+// Outputs from left to right. "clock" is e, s or null for a wire with no clock.
+const OUTPUTS = [
+  { name: 'ALU en', clock: null, terms: ['ALU 5'] },
+  { name: 'bus 1', clock: null, terms: ['fetch 1', 'DATA 4', 'JCAEZ 4', 'CLF 4'] },
+  { name: 'TMP s', clock: 's', terms: ['ALU 4'] },
+  { name: 'ACC s', clock: 's', terms: ['fetch 1', 'ALU 5', 'DATA 4', 'JCAEZ 4'] },
+  { name: 'ACC e', clock: 'e', terms: ['fetch 3', 'ALU 6', 'DATA 6', 'JCAEZ 5'] },
+  { name: 'FLAGS s', clock: 's', terms: ['ALU 5', 'CLF 4'] },
+  { name: 'IR s', clock: 's', terms: ['fetch 2'] },
+  { name: 'IAR e', clock: 'e', terms: ['fetch 1', 'DATA 4', 'JMP 4', 'JCAEZ 4'] },
+  { name: 'IAR s', clock: 's', terms: ['fetch 3', 'DATA 6', 'JMPR 4', 'JMP 5', 'JCAEZ 5', 'JCAEZ 6'] },
+  { name: 'MAR s', clock: 's', terms: ['fetch 1', 'LD 4', 'ST 4', 'DATA 4', 'JMP 4', 'JCAEZ 4'] },
+  { name: 'RAM e', clock: 'e', terms: ['fetch 2', 'LD 5', 'DATA 5', 'JMP 5', 'JCAEZ 6'] },
+  { name: 'RAM s', clock: 's', terms: ['ST 5'] },
+  { name: 'REG A e', clock: 'e', terms: ['ALU 5', 'LD 4', 'ST 4'] },
+  { name: 'REG B e', clock: 'e', terms: ['ALU 4', 'ST 5', 'JMPR 4'] },
+  { name: 'REG B s', clock: 's', terms: ['ALU 6', 'LD 5', 'DATA 5'] },
+]
+
+// --- the AND plane: one row for each term, gates pointing left -----------------------
+const PLANE = { rowY: 326, rowPitch: 15, gateX: 1300, orX: 760, orY: 650, andY: 690, outY: 712 }
+const TERM_X = PLANE.gateX - GATE_W     // where a term wire starts
+const termNets = {}
+const termRows = {}
+
+Object.entries(TERMS).forEach(([name, inputs], r) => {
+  const y = PLANE.rowY + r * PLANE.rowPitch
+  termRows[name] = y
+  const cols = inputs.map(input => columns.get(input)).sort((a, b) => a.x - b.x)
+  if (cols.length === 1) {
+    // A term with one input needs no gate: the step wire is the term.
+    const [col] = cols
+    termNets[name] = col.net
+    wire(col.net, `M${col.x} ${y} H${TERM_X}`)
+    dot(col.net, col.x, y)
+    useColumn(col, y)
+    return
+  }
+  const out = termNets[name] = net(name)
+  circuit.add(new Gate('and', cols.map(col => col.net), out))
+  const pins = gate('and', PLANE.gateX, y, 'l', out, { n: cols.length, pitch: cols.length > 2 ? 4 : 6 })
+  cols.forEach((col, i) => {
+    const [pinX, pinY] = pins.ins[i]
+    wire(col.net, `M${col.x} ${pinY} H${pinX}`)
+    dot(col.net, col.x, pinY)
+    useColumn(col, pinY)
+  })
+})
+
+// --- the OR plane: one group of wires for each output -----------------------------
+const termReach = {}     // how far left each term wire runs
+const outputPins = {}    // name -> [x, y], where the finished control wire starts
+let groupX = PLANE.orX
+
+for (const { name, clock, terms } of OUTPUTS) {
+  const n = terms.length
+  const width = Math.max(6 * n + 10, 30)
+  const gx = groupX + width / 2 - 3
+  groupX += width
+  const out = net(name)
+  const sorted = [...terms].sort((a, b) => termRows[a] - termRows[b])
+
+  // the OR of the terms
+  let sum = termNets[sorted[0]]
+  let sumY = PLANE.orY
+  if (n > 1) {
+    sum = clock ? net(`${name} terms`) : out
+    circuit.add(new Gate('or', sorted.map(t => termNets[t]), sum))
+    const pins = gate('or', gx, PLANE.orY, 'd', sum, { n, pitch: 5 })
+    sorted.forEach((t, i) => {
+      const [x, y] = pins.ins[i]
+      wire(termNets[t], `M${x} ${termRows[t]} V${y}`)
+      termReach[t] = Math.min(termReach[t] ?? Infinity, x)
+      dot(termNets[t], x, termRows[t])
+    })
+    sumY = pins.out[1]
+  } else {
+    wire(sum, `M${gx} ${termRows[sorted[0]]} V${PLANE.orY}`)
+    termReach[sorted[0]] = Math.min(termReach[sorted[0]] ?? Infinity, gx)
+    dot(sum, gx, termRows[sorted[0]])
+    if (!clock) circuit.add(new Gate('or', [sum], out))
+  }
+
+  // the clock gate
+  if (clock) {
+    const clk = clock === 'e' ? CLK_E : CLK_S
+    const clkNet = net(`clk ${clock}`)
+    circuit.add(new Gate('and', [sum, clkNet], out))
+    const pins = gate('and', gx + 3, PLANE.andY, 'd', out)
+    wire(sum, `M${gx} ${sumY} V${pins.ins[1][1]}`)
+    wire(clkNet, `M${pins.ins[0][0]} ${clk.y} V${pins.ins[0][1]}`)
+    dot(clkNet, pins.ins[0][0], clk.y)
+    clk.reach = Math.max(clk.reach ?? 0, pins.ins[0][0])
+    wire(out, `M${pins.out[0]} ${pins.out[1]} V${PLANE.outY}`)
+    outputPins[name] = [pins.out[0], PLANE.outY]
+  } else {
+    wire(out, `M${gx} ${sumY} V${PLANE.outY}`)
+    outputPins[name] = [gx, PLANE.outY]
+  }
+  const text = label(0, 0, name, 'wl')
+  text.setAttribute('transform', `translate(${outputPins[name][0] - 10} ${PLANE.outY + 4}) rotate(90)`)
+}
+
+for (const [name, reach] of Object.entries(termReach)) {
+  wire(termNets[name], `M${TERM_X} ${termRows[name]} H${reach}`)
+}
+wire(net('clk e'), `M${CLOCK.x + CLOCK.w} ${CLK_E.y} H${CLK_E.reach}`)
+wire(net('clk s'), `M${CLOCK.x + CLOCK.w} ${CLK_S.y} H${CLK_S.reach}`)
+
+// --- jump condition: FLAGS against ir4..ir7 ----------------------------------------
+// One AND gate hangs beside each of the four IR wires. The flag wires come
+// from the ALU side, above the class decoder.
+const MATCH = { gateY: 655, orX: 1794, orY: 720 }
+const flagLaneY = i => 625 + i * 5
+const flagJogX = i => 644 + i * 5
+const matchOr = gate('or', MATCH.orX, MATCH.orY, 'r', net('match'), { n: 4, pitch: 5 })
+const matchTerms = flagOut.map((flag, i) => {
+  const out = net(`match ${'CAEZ'[i]}`)
+  const bit = i + 4
+  circuit.add(new Gate('and', [irOut[bit], flag], out))
+  const pins = gate('and', irCol(bit) + 12, MATCH.gateY, 'd', out)
+  irBranch(bit, pins.ins[1][1], `H${pins.ins[1][0]}`)
+  wire(flag, `M${FLAGS.x + FLAGS.w} ${flagY(i)} H${flagJogX(i)} V${flagLaneY(i)} H${pins.ins[0][0]} V${pins.ins[0][1]}`)
+  const [orX, orY] = matchOr.ins[3 - i]
+  wire(out, `M${pins.out[0]} ${pins.out[1]} V${orY} H${orX}`)
+  return out
+})
+circuit.add(new Gate('or', matchTerms, net('match')))
+wire(net('match'), `M${matchOr.out[0]} ${MATCH.orY} H${MATCH_X}`)
+
+// The carry flag also feeds the carry latch beside the ALU.
+wire(flagOut[0], `M${flagJogX(0)} ${flagY(0)} V${C_TMP.y - 6} H${C_TMP.x + 12} V${C_TMP.y}`)
+dot(flagOut[0], flagJogX(0), flagY(0))
+
+// The columns themselves, now that each one knows how far up it runs.
+for (const [name, col] of columns) {
+  const fromTop = col.feed < PLANE.rowY
+  // A column no term uses (IO) is a short stub.
+  const far = col.lo === Infinity ? col.feed - 20 : fromTop ? col.hi : col.lo
+  const d = `M${col.x} ${col.feed} V${far}`
+  if (name.startsWith('s')) control(col.net, d, 'step')
+  else wire(col.net, d)
+  if (fromTop) {
+    // A step number sits beside its wire where it leaves the stepper.
+    label(col.x + 2, col.feed + 10, name.replace(/^s/, ''), 'wl')
+    continue
+  }
+  const text = label(0, 0, name.replace('!', 'not '), 'wl')
+  text.setAttribute('transform', `translate(${col.x - 4} ${IDEC.y - 6}) rotate(-90)`)
+}
+
+// The carry latch feeds the ALU only while the ALU is in use.
+{
+  const pins = gate('and', 616, CARRY_Y, 'l', aluNets.carryIn)
+  circuit.add(new Gate('and', [net('c tmp'), aluEnable], aluNets.carryIn))
+  wire(net('c tmp'), `M${C_TMP.x} ${pins.ins[1][1]} H${pins.ins[1][0]}`)
+  wire(aluEnable, `M${ALU_EN_X} ${CARRY_Y + 15} H620 V${pins.ins[0][1]} H${pins.ins[0][0]}`)
+}
+
+// --- control wires that leave at the bottom -------------------------------------------
+const lane = i => PLANE.outY + 40 + i * 4
+const from = name => `M${outputPins[name].join(' ')}`
+
+control(aluEnable, `${from('ALU en')} V${lane(0)} H${ALU_EN_X}`)
+wire(aluEnable, `M${ALU_EN_X} ${opGateY(0) + 3} V${CARRY_Y + 15}`)
+dot(aluEnable, ALU_EN_X, lane(0))
+
+control(net('bus 1'), `${from('bus 1')} V${lane(1)} H560 V135 H${B_X + TAP_W + 10}`)
+
+control(net('TMP s'), `${from('TMP s')} V${lane(2)} H570 V${TMP.y + 20} H${TMP.x + CELL * 8}`)
+label(TMP.x + CELL * 8 + 4, TMP.y + 17, 's', 'es')
+wire(net('TMP s'), `M570 ${lane(2)} V${C_TMP.y + C_TMP.h + 10} H${C_TMP.x + 12} V${C_TMP.y + C_TMP.h}`)
+dot(net('TMP s'), 570, lane(2))
+
+control(net('ACC s'), `${from('ACC s')} V${lane(3)} H656 V${ACC.y + 12} H${ACC.x + CELL * 8}`)
+control(net('ACC e'), `${from('ACC e')} V${lane(4)} H660 V${ACC.y + 28} H${ACC.x + CELL * 8}`)
+label(ACC.x + CELL * 8 + 4, ACC.y + 9, 's', 'es')
+label(ACC.x + CELL * 8 + 4, ACC.y + 26, 'e', 'es')
+control(net('FLAGS s'), `${from('FLAGS s')} V${lane(5)} H${FLAGS.x + 12} V${FLAGS.y + FLAGS.cell * 4}`)
+label(FLAGS.x + 15, FLAGS.y + FLAGS.cell * 4 + 12, 's', 'es')
+control(net('IR s'), `${from('IR s')} V${lane(6)} H${irX(3) + 14} V${IR.y}`)
+label(irX(3) + 11, IR.y - 3, 's', 'es end')
+
+// --- IAR: under its own two output wires ------------------------------------------------
+const IAR = { x: outputPins['IAR s'][0] - 214, y: 806 }
+const iar = register(
+  { name: 'IAR', inputs: busNets, set: net('IAR s'), enable: net('IAR e'), bus },
+  { ...IAR, role: 'ctrl', tab: 'bottom' })
+tap.bottom(iar.shape.cx - TAP_W / 2, IAR.y + REG_H)
+control(net('IAR e'), `${from('IAR e')} V${IAR.y}`)
+control(net('IAR s'), `${from('IAR s')} V${IAR.y}`)
+label(outputPins['IAR e'][0] + 3, IAR.y - 3, 'e', 'es')
+label(outputPins['IAR s'][0] + 3, IAR.y - 3, 's', 'es')
+
+// --- R0 to R3 and their select logic -------------------------------------------------------
+// The registers sit in the top row. Under each one, three AND gates pick it:
+// REG A enable, REG B enable and REG B set, each ANDed with a decoder line.
+// The decoders sit at the top right, on the IR wires; their lines run left.
+const REGS = { x: 700, pitch: 269, y: 72, gateY: 190, orY: 150 }
+const LANE = { a: j => 233 + j * 5, b: j => 204 + j * 5, reg: i => 276 + i * 5, turnX: i => 1860 + i * 5 }
+// Decoder B sits higher and to the right, so its lines pass over decoder A
+// and the IR wires into A pass under B's lines.
+const DEC_A = { x: 1752, y: 228, w: 48, h: 23 }
+const DEC_B = { x: 1806, y: 199, w: 48, h: 27 }
+const decA = circuit.word('reg a', 4)
+const decB = circuit.word('reg b', 4)
+circuit.add(new Decoder(irOut.slice(4, 6), decA))
+circuit.add(new Decoder(irOut.slice(6, 8), decB))
+boxWithLabel(DEC_A.x, DEC_A.y, DEC_A.w, DEC_A.h, 'A 2x4', 'small mid')
+boxWithLabel(DEC_B.x, DEC_B.y, DEC_B.w, DEC_B.h, 'B 2x4', 'small mid')
+// Bits 4 to 7 jog right above the stepper and rise into the decoders. Bit 4
+// turns first and highest, so no jog crosses another bit's wire.
+const IR_JOG_Y = i => 254 + (i - 4) * 5
+;[[4, DEC_A], [5, DEC_A], [6, DEC_B], [7, DEC_B]].forEach(([i, dec]) => {
+  const x = dec.x + 10 + (i % 2) * 28
+  irBranch(i, IR_JOG_Y(i), `H${x} V${dec.y + dec.h}`)
+})
+
+// The gates sit in the left half of each plate, clear of the decoders.
+const gateXs = n => {
+  const cx = REGS.x + n * REGS.pitch + CELL * 4
+  return { a: cx - 80, b: cx - 48, s: cx - 10, or: cx - 64 }
+}
+const first = gateXs(0)
+
+const regLanes = ['REG A e', 'REG B e', 'REG B s'].map((name, i) => {
+  const y = LANE.reg(i)
+  const bottomY = PLANE.outY + 32 - i * 4
+  const n = net(name)
+  const endX = [first.a, first.b, first.s][i] - 3
+  wire(n, `${from(name)} V${bottomY} H${LANE.turnX(i)} V${y} H${endX}`)
+  return { net: n, y }
+})
+// A line leaves the side of its decoder that faces its register.
+const decLane = (box, y, endX) => `M${endX < box.x ? box.x : box.x + box.w} ${y} H${endX}`
+decA.forEach((n, j) => wire(n, decLane(DEC_A, LANE.a(j), gateXs(j).a + 3)))
+decB.forEach((n, j) => wire(n, decLane(DEC_B, LANE.b(j), gateXs(j).b + 3)))
+
+for (let n = 0; n < 4; n++) {
+  const px = REGS.x + n * REGS.pitch
+  const e = net(`R${n} e`)
+  const s = net(`R${n} s`)
+  const reg = register(
+    { name: `R${n}`, inputs: busNets, set: s, enable: e, bus },
+    { x: px, y: REGS.y, role: 'gp' })
+  tap.top(reg.shape.cx - TAP_W / 2, REGS.y)
+
+  const g = gateXs(n)
+  const rows = [
+    { x: g.a, lane: regLanes[0], dec: decA[n], decY: LANE.a(n), out: net(`R${n} e a`), end: true },
+    { x: g.b, lane: regLanes[1], dec: decB[n], decY: LANE.b(n), out: net(`R${n} e b`), end: true },
+    { x: g.s, lane: regLanes[2], dec: decB[n], decY: LANE.b(n), out: s, end: false },
+  ]
+  for (const row of rows) {
+    circuit.add(new Gate('and', [row.lane.net, row.dec], row.out))
+    const pins = gate('and', row.x, REGS.gateY, 'u', row.out)
+    wire(row.lane.net, `M${pins.ins[0][0]} ${row.lane.y} V${pins.ins[0][1]}`)
+    wire(row.dec, `M${pins.ins[1][0]} ${row.decY} V${pins.ins[1][1]}`)
+    if (n > 0) dot(row.lane.net, pins.ins[0][0], row.lane.y)
+    if (!row.end) dot(row.dec, pins.ins[1][0], row.decY)
+  }
+  circuit.add(new Gate('or', [rows[0].out, rows[1].out], e))
+  const or = gate('or', g.or, REGS.orY, 'u', e)
+  const outY = REGS.gateY - GATE_W
+  wire(rows[0].out, `M${g.a} ${outY} V158 H${or.ins[0][0]} V${or.ins[0][1]}`)
+  wire(rows[1].out, `M${g.b} ${outY} V158 H${or.ins[1][0]} V${or.ins[1][1]}`)
+  const bottom = REGS.y + REG_H
+  control(e, `M${or.out[0]} ${or.out[1]} V${bottom}`)
+  control(s, `M${g.s} ${outY} V${bottom}`)
+  label(or.out[0] + 3, bottom + 11, 'e', 'es')
+  label(g.s + 3, bottom + 11, 's', 'es')
+}
+
+// The IR wires themselves, from the register up to their highest branch.
+// Every branch below the top gets a dot.
+irOut.forEach((n, i) => {
+  const jog = i < 4 ? '' : `V${irJogY(i)} H${irCol(i)}`
+  wire(n, `M${irX(i)} ${IR.y} ${jog} V${irTop[i]}`)
+})
+for (const [i, y] of irTaps) if (y > irTop[i]) dot(irOut[i], irCol(i), y)
+
+// ---------------------------------------------------------------------------
+// 5. Memory: MAR, two 4x16 decoders and 256 cells
+//
+// The high half of MAR picks the row. The low half picks the column. So an
+// address reads like text: left to right, then top to bottom.
+// ---------------------------------------------------------------------------
+
+const MEM = { x: 312, y: 958, cellW: 92, cellH: 17, headY: 936, headH: 20, rowX: 280, rowW: 30 }
+MEM.right = MEM.x + 16 * MEM.cellW
+MEM.bottom = MEM.y + 16 * MEM.cellH
+module(20, 930, 1862, MEM.bottom - 930 + 8, 'ram', '')
+
+const marOut = circuit.word('mar')
+const MAR = { x: 30, y: 962 }
+const mar = register(
+  { name: 'MAR', inputs: busNets, set: net('MAR s'), outs: marOut },
+  { ...MAR, role: 'ctrl' })
+tap.bottom(mar.shape.cx - TAP_W / 2, MAR.y)
+control(net('MAR s'), `${from('MAR s')} V926 H${MAR.x + 200} V${MAR.y}`)
+label(MAR.x + 204, MAR.y - 3, 's', 'es')
+
+const rowNets = circuit.word('ram row', 16)
+const colNets = circuit.word('ram col', 16)
+const ram = circuit.add(new Ram({
+  address: marOut, rows: rowNets, cols: colNets,
+  inputs: busNets, set: net('RAM s'), enable: net('RAM e'), bus,
+}))
+
+// MAR to the decoders
+const MAR_BOTTOM = MAR.y + REG_H
+for (let i = 0; i < 4; i++) {
+  wire(marOut[i], `M${mar.shape.cellX(i)} ${MAR_BOTTOM} V${1052 - i * 5} H${MEM.rowX}`)
+  const j = i + 4
+  wire(marOut[j], `M${mar.shape.cellX(j)} ${MAR_BOTTOM} V${1022 - i * 5} H${268 - i * 4} V${MEM.headY + 16 - i * 4} H${MEM.x}`)
+}
+box(MEM.rowX, MEM.y, MEM.rowW, 16 * MEM.cellH)
+box(MEM.x, MEM.headY, 16 * MEM.cellW, MEM.headH)
+label(MEM.x - 28, MEM.headY + 13, '4x16', 'small')
+label(MEM.rowX + 2, MEM.bottom + 10, '4x16', 'small')
+
+// the data side: one tap, gated by RAM e and RAM s
+const IO = { x: 1800, y: MEM.headY, w: 66 }
+tap.bottom(IO.x + 15, IO.y)
+boxWithLabel(IO.x, IO.y, IO.w, MEM.bottom - IO.y, 'DATA')
+control(net('RAM s'), `${from('RAM s')} V922 H${IO.x + 60} V${IO.y}`)
+control(net('RAM e'), `${from('RAM e')} V927 H${IO.x + 6} V${IO.y}`)
+label(IO.x + 10, IO.y + 12, 'e', 'es')
+label(IO.x + 50, IO.y + 12, 's', 'es end')
+
+// the cells
+const hex = n => n.toString(16).toUpperCase()
+const byteText = value => value.toString(2).padStart(8, '0').replace(/(....)/, '$1 ')
+const cellViews = []
+const grid = el('g', {}, layers.shapes)
+for (let address = 0; address < 256; address++) {
+  const x = MEM.x + (address & 15) * MEM.cellW
+  const y = MEM.y + (address >> 4) * MEM.cellH
+  const rect = el('rect', { class: 'ram-cell', x, y, width: MEM.cellW, height: MEM.cellH }, grid)
+  const title = el('title', {}, rect)
+  // The text has a fixed length, so each digit sits over its own hit box.
+  const TEXT_W = 67
+  const left = x + (MEM.cellW - TEXT_W) / 2
+  const text = el('text', { class: 'ram-text mid none', x: x + MEM.cellW / 2, y: y + MEM.cellH / 2 + 0.5,
+    textLength: TEXT_W, lengthAdjust: 'spacingAndGlyphs' }, grid)
+  cellViews.push({ rect, text, title })
+  for (let bit = 0; bit < 8; bit++) {
+    // 9 characters: 4 digits, a space, 4 digits.
+    const slot = bit + (bit >= 4 ? 1 : 0)
+    const hit = el('rect', { class: 'ram-bit', x: left + slot * TEXT_W / 9, y, width: TEXT_W / 9, height: MEM.cellH }, layers.hits)
+    el('title', {}, hit, `address ${address} bit ${bit}: click to flip`)
+    hit.addEventListener('click', () => {
+      ram.cells[address] ^= 1 << (7 - bit)
+      showCell(address)
+      refresh()
+    })
+  }
+}
+for (let i = 0; i < 16; i++) {
+  label(MEM.x + i * MEM.cellW + MEM.cellW / 2, MEM.headY + MEM.headH / 2, hex(i), 'ram-head mid')
+  label(MEM.rowX + MEM.rowW / 2, MEM.y + i * MEM.cellH + MEM.cellH / 2, hex(i), 'ram-head mid')
+  // The select wires lie on the grid lines: under each row, left of each column.
+  const rowY = MEM.y + (i + 1) * MEM.cellH
+  const colX = MEM.x + i * MEM.cellW
+  bind(el('path', { class: 'wire', d: `M${MEM.rowX + MEM.rowW} ${rowY} H${MEM.right}` }, layers.shapes), rowNets[i])
+  bind(el('path', { class: 'wire', d: `M${colX} ${MEM.headY + MEM.headH} V${MEM.bottom}` }, layers.shapes), colNets[i])
+}
+
+function showCell(address) {
+  const value = ram.cells[address]
+  const view = cellViews[address]
+  view.text.textContent = byteText(value)
+  view.title.textContent = `address ${address} (0x${hex(address)}): ${value} (0x${hex(value)})`
+  view.rect.classList.toggle('used', value !== 0)
+}
+ram.onWrite = showCell
+
+let shownAddress = -1
+views.push(() => {
+  const address = ram.selected
+  if (address === shownAddress) return
+  cellViews[shownAddress]?.rect.classList.remove('selected')
+  cellViews[address].rect.classList.add('selected')
+  shownAddress = address
+})
+
+function loadMemory(bytes, origin = 0) {
+  bytes.forEach((byte, i) => { ram.cells[(origin + i) & 255] = byte })
+  for (let address = 0; address < 256; address++) showCell(address)
+}
+loadMemory([])
+
+// ---------------------------------------------------------------------------
+// 6. The assembler
+// ---------------------------------------------------------------------------
+
+const ALU_CODES = { ADD: 0, SHR: 1, SHL: 2, NOT: 3, AND: 4, OR: 5, XOR: 6, CMP: 7 }
+
+const HELP = `One instruction on each line. A comment starts with ";".
+A number is decimal, 0x hex, or 8 binary digits. "name:" makes a label.
+
+ADD  RA, RB    1000aabb   RB = RA + RB (also SHR SHL NOT AND OR XOR)
+CMP  RA, RB    1111aabb   sets the flags only
+LD   RA, RB    0000aabb   RB = memory[RA]
+ST   RA, RB    0001aabb   memory[RA] = RB
+DATA RB, n     001000bb n RB = n
+JMPR RB        001100bb   jump to the address in RB
+JMP  addr      01000000 a jump
+JCAEZ addr     0101caez a jump if a named flag is on: JC, JA, JE, JZ, JAE ...
+CLF            01100000   clear the flags
+
+An ALU instruction with one register uses it for RA and RB: SHL R0.
+IN and OUT are not wired. The machine has no I/O devices.
+
+With the clock stopped:
+  click a register bit to flip it
+  click an enable wire, a set wire, a step wire or an op wire to hold it on`
+
+function assemble(source) {
+  const lines = source.split('\n').map((text, i) => ({
+    number: i + 1,
+    text: text.replace(/;.*$/, '').trim(),
+  }))
+  const labels = new Map()
+  const items = []     // { line, address, bytes: [number | string] }
+  let address = 0
+
+  const register = (token, line) => {
+    const match = /^R([0-3])$/i.exec(token ?? '')
+    if (!match) throw new Error(`line ${line.number}: "${token ?? ''}" is not a register. Use R0 to R3.`)
+    return Number(match[1])
+  }
+
+  for (const line of lines) {
+    let text = line.text
+    const labelMatch = /^([A-Za-z_]\w*):\s*/.exec(text)
+    if (labelMatch) {
+      labels.set(labelMatch[1].toUpperCase(), address)
+      text = text.slice(labelMatch[0].length)
+    }
+    if (!text) continue
+    const [mnemonic, ...args] = text.split(/[\s,]+/)
+    const op = mnemonic.toUpperCase()
+    let bytes
+    if (op in ALU_CODES) {
+      const ra = register(args[0], line)
+      const rb = args.length > 1 ? register(args[1], line) : ra
+      bytes = [0x80 | (ALU_CODES[op] << 4) | (ra << 2) | rb]
+    } else if (op === 'LD' || op === 'ST') {
+      bytes = [(op === 'ST' ? 0x10 : 0) | (register(args[0], line) << 2) | register(args[1], line)]
+    } else if (op === 'DATA') {
+      bytes = [0x20 | register(args[0], line), args[1]]
+    } else if (op === 'JMPR') {
+      bytes = [0x30 | register(args[0], line)]
+    } else if (op === 'JMP') {
+      bytes = [0x40, args[0]]
+    } else if (/^J[CAEZ]{1,4}$/.test(op)) {
+      const mask = [...op.slice(1)].reduce((m, flag) => m | (8 >> 'CAEZ'.indexOf(flag)), 0)
+      bytes = [0x50 | mask, args[0]]
+    } else if (op === 'CLF') {
+      bytes = [0x60]
+    } else if (args.length === 0 && /^[\dA-Fx]+$/i.test(op)) {
+      bytes = [op]
+    } else {
+      throw new Error(`line ${line.number}: "${mnemonic}" is not an instruction. Open help for the list.`)
+    }
+    items.push({ line, address, bytes })
+    address += bytes.length
+  }
+
+  const value = (token, line) => {
+    if (typeof token === 'number') return token
+    const text = token ?? ''
+    if (labels.has(text.toUpperCase())) return labels.get(text.toUpperCase())
+    const number = /^[01]{8}$/.test(text) ? parseInt(text, 2) : Number(text)
+    if (text === '' || !Number.isInteger(number) || number < 0 || number > 255) {
+      throw new Error(`line ${line.number}: "${text}" is not a number from 0 to 255 or a label.`)
+    }
+    return number
+  }
+  for (const item of items) item.bytes = item.bytes.map(b => value(b, item.line))
+  if (address > 256) throw new Error(`The program is ${address} bytes. Memory holds 256.`)
+  return items
+}
+
+const SAMPLE = `; 5 x 5 by shift and add. Result in R2.
+DATA R0, 5
+DATA R1, 5
+DATA R3, 1
+XOR R2
+next: CLF
+SHR R0
+JC add
+JMP shift
+add: CLF
+ADD R1, R2
+shift: CLF
+SHL R1
+SHL R3
+JC done
+JMP next
+done: JMP done`
+
+// Listings to start a lecture from: open the page with ?prog=NAME.
+const PROGRAMS = {
+  and: 'DATA R0, 11001010\nDATA R1, 01101100\nAND R0, R1\nend: JMP end',
+  sample: SAMPLE,
+}
+
+// ---------------------------------------------------------------------------
+// 7. The page: clock buttons, the run loop and the program panel
+// ---------------------------------------------------------------------------
+
+const $ = id => document.getElementById(id)
+let timer = null
+
+function showStatus(text) {
+  const phase = ['idle', 'enable', 'enable + set', 'enable'][sequencer.phase]
+  $('status').textContent = `${text} | step ${sequencer.step + 1} | ${phase}`
+}
+
+// Every tick saves the machine first, so "back tick" can restore it. The
+// history is bounded; each entry holds a copy of memory.
+const history = []
+const HISTORY_MAX = 4000
+
+function snapshot() {
+  return {
+    registers: registers.map(reg => reg.value),
+    cells: ram.cells.slice(),
+    phase: sequencer.phase,
+    step: sequencer.step,
+    started: sequencer.started,
+  }
+}
+
+function restore(state) {
+  registers.forEach((reg, i) => { reg.value = state.registers[i] })
+  ram.cells.set(state.cells)
+  sequencer.phase = state.phase
+  sequencer.step = state.step
+  sequencer.started = state.started
+  for (let address = 0; address < 256; address++) showCell(address)
+}
+
+function remember() {
+  history.push(snapshot())
+  if (history.length > HISTORY_MAX) history.shift()
+}
+
+function tick() {
+  remember()
+  sequencer.tick()
+  refresh()
+}
+
+function backTick() {
+  stop()
+  const state = history.pop()
+  if (!state) return
+  restore(state)
+  refresh()
+  showStatus('stopped')
+}
+
+const atStepStart = () => sequencer.phase === 0
+// An instruction is over when step 6 has gone idle.
+const atInstructionStart = () => sequencer.phase === 0 && (sequencer.step === 5 || !sequencer.started)
+
+function advance(until) {
+  stop()
+  do tick(); while (!until())
+  showStatus('stopped')
+}
+
+// A jump to its own address is how a program for this machine halts.
+let lastIar = -1
+function halted() {
+  if (!atInstructionStart()) return false
+  const same = iar.value === lastIar
+  lastIar = iar.value
+  return same
+}
+
+function run() {
+  stop()
+  lastIar = -1
+  const loop = () => {
+    const perSecond = Math.max(1, Number($('speed').value) || 1) * 4
+    // A browser timer is not faster than about 250 Hz, so batch the ticks.
+    const batch = Math.ceil(perSecond / 120)
+    for (let i = 0; i < batch; i++) {
+      tick()
+      if (halted()) {
+        stop()
+        showStatus('halted')
+        return
+      }
+    }
+    showStatus('running')
+    timer = setTimeout(loop, (1000 * batch) / perSecond)
+  }
+  loop()
+}
+
+function stop() {
+  clearTimeout(timer)
+  timer = null
+  showStatus('stopped')
+}
+
+function reset() {
+  stop()
+  history.length = 0
+  for (const reg of registers) reg.reset()
+  sequencer.reset()
+  for (const held of holds.keys()) held.held = false
+  refresh()
+  showStatus('stopped')
+}
+
+function assembleAndLoad() {
+  const listing = $('listing')
+  try {
+    const items = assemble($('source').value)
+    const origin = Number($('origin').value) || 0
+    reset()
+    loadMemory(items.flatMap(item => item.bytes), origin)
+    refresh()
+    listing.textContent = items.map(item => {
+      const at = String(origin + item.address).padStart(3)
+      const bits = item.bytes.map(b => b.toString(2).padStart(8, '0')).join(' ')
+      return `${at}  ${bits.padEnd(17)}  ${item.line.text}`
+    }).join('\n')
+  } catch (error) {
+    listing.innerHTML = ''
+    const message = document.createElement('span')
+    message.className = 'error'
+    message.textContent = error.message
+    listing.append(message)
+  }
+}
+
+$('back').onclick = backTick
+$('tick').onclick = () => advance(() => true)
+$('step').onclick = () => advance(atStepStart)
+$('instruction').onclick = () => advance(atInstructionStart)
+$('run').onclick = run
+$('stop').onclick = stop
+$('reset').onclick = reset
+$('assemble').onclick = assembleAndLoad
+$('sample').onclick = () => {
+  $('source').value = SAMPLE
+  assembleAndLoad()
+}
+$('clear-ram').onclick = () => {
+  reset()
+  ram.cells.fill(0)
+  loadMemory([])
+  refresh()
+}
+$('wire-color').oninput = event => document.documentElement.style.setProperty('--on', event.target.value)
+$('toggle-program').onclick = () => $('program').classList.toggle('closed')
+$('help-text').textContent = HELP
+$('help').onclick = () => $('help-dialog').showModal()
+$('source').addEventListener('keydown', event => {
+  if (event.key === 'F2') assembleAndLoad()
+})
+
+const params = new URLSearchParams(location.search)
+if (params.has('speed')) $('speed').value = params.get('speed')
+const preset = PROGRAMS[params.get('prog')?.toLowerCase()]
+if (preset) {
+  $('source').value = preset
+  assembleAndLoad()
+}
+refresh()
+showStatus('stopped')
+</script>
+</body>
+</html>
