@@ -172,6 +172,14 @@
     display: flex; align-items: center; gap: 8px;
   }
   .unit-title .spacer { margin-left: auto; }
+  /* The editor is out of step with memory, so the machine is running
+     something else. Amber, because it is a warning and not an error. */
+  #editor-mode.dirty {
+    background: #8a4b1e;
+    color: #ffd76a;
+    padding: 1px 7px;
+    border-radius: 3px;
+  }
   .unit-body {
     flex: 1; min-height: 0; display: grid;
     grid-template-rows: minmax(0, 3fr) auto minmax(0, 1fr);
@@ -1977,10 +1985,27 @@ const source = {
   set: text => (monacoEditor ? monacoEditor.setValue(text) : ($('source').value = text)),
 }
 
+let plainReason = null
+
 function usePlainEditor(why) {
   $('editor').hidden = true
   $('source').hidden = false
-  $('editor-mode').textContent = `x266 | plain text (${why})`
+  plainReason = why
+  showEditorState()
+}
+
+/* What memory actually holds. Until the editor text matches this, the machine
+ * is running something else, which is the single most confusing thing a
+ * student can hit: the program looks right and the machine ignores it. */
+let loadedSource = null
+
+function showEditorState() {
+  const dirty = source.get().trim() !== (loadedSource ?? '').trim()
+  const parts = ['x266']
+  if (plainReason) parts.push(`plain text (${plainReason})`)
+  parts.push(dirty ? 'NOT LOADED' : 'loaded')
+  $('editor-mode').textContent = parts.join(' | ')
+  $('editor-mode').classList.toggle('dirty', dirty)
 }
 
 function startEditor() {
@@ -2059,6 +2084,19 @@ function startEditor() {
         'editorLineNumber.activeForeground': '#5a5347',
         'editorCursor.foreground': '#2b2620',
         'editor.selectionBackground': '#c9c2ab',
+        // The completion list needs its own colours. Without them it inherits
+        // a dark default and paints as one solid bar with no readable text.
+        'editorWidget.background': '#e9e4d4',
+        'editorWidget.border': '#8c8676',
+        'editorWidget.foreground': '#2b2620',
+        'editorSuggestWidget.background': '#e9e4d4',
+        'editorSuggestWidget.border': '#8c8676',
+        'editorSuggestWidget.foreground': '#2b2620',
+        'editorSuggestWidget.selectedBackground': '#bfb7a0',
+        'editorSuggestWidget.selectedForeground': '#2b2620',
+        'editorSuggestWidget.highlightForeground': '#8a4b1e',
+        'editorSuggestWidget.focusHighlightForeground': '#8a4b1e',
+        'list.hoverBackground': '#ded8c6',
       },
     })
 
@@ -2073,8 +2111,13 @@ function startEditor() {
       automaticLayout: true,
       renderLineHighlight: 'line',
       tabSize: 8,
+      // The editor pane clips its overflow, so the completion list has to be
+      // rendered outside it or it is cut off at the pane edge.
+      fixedOverflowWidgets: true,
     })
     monacoEditor.addCommand(monaco.KeyCode.F2, assembleAndLoad)
+    monacoEditor.onDidChangeModelContent(showEditorState)
+    showEditorState()
   }, () => {
     arrived = true
     clearTimeout(giveUp)
@@ -2087,10 +2130,13 @@ function startEditor() {
 function assembleAndLoad() {
   const listing = $('listing')
   try {
-    const items = assemble(source.get())
+    const text = source.get()
+    const items = assemble(text)
     const origin = Number($('origin').value) || 0
     reset()
     loadMemory(items.flatMap(item => item.bytes), origin)
+    loadedSource = text
+    showEditorState()
     refresh()
     listing.textContent = items.map(item => {
       const at = String(origin + item.address).padStart(3)
@@ -2103,6 +2149,8 @@ function assembleAndLoad() {
     message.className = 'error'
     message.textContent = error.message
     listing.append(message)
+    // Nothing reached memory, so the editor still does not match it.
+    showEditorState()
   }
 }
 
@@ -2122,6 +2170,8 @@ $('clear-ram').onclick = () => {
   reset()
   ram.cells.fill(0)
   loadMemory([])
+  loadedSource = null
+  showEditorState()
   refresh()
 }
 $('wire-color').oninput = event => document.documentElement.style.setProperty('--on', event.target.value)
@@ -2131,6 +2181,7 @@ $('help').onclick = () => $('help-dialog').showModal()
 $('source').addEventListener('keydown', event => {
   if (event.key === 'F2') assembleAndLoad()
 })
+$('source').addEventListener('input', showEditorState)
 
 const params = new URLSearchParams(location.search)
 if (params.has('speed')) $('speed').value = params.get('speed')
@@ -2140,6 +2191,7 @@ if (preset) {
   assembleAndLoad()
 }
 startEditor()
+showEditorState()
 refresh()
 showStatus('stopped')
 </script>
