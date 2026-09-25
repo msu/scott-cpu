@@ -231,7 +231,7 @@
   .label { font-size: 11px; font-weight: 700; }
   .small { font-size: 8.5px; font-weight: 700; }
   .wl { font-size: 8.5px; font-weight: 700; }   /* a wire's name */
-  .es { font-size: 11px; font-weight: 700; }    /* an enable or set entry */
+  .es { font-size: 14px; font-weight: 700; }    /* an enable or set entry */
   .clickable { cursor: pointer; }
   .clickable:hover { stroke: rgba(255, 138, 0, 0.9); }
   .mid { text-anchor: middle; dominant-baseline: central; }
@@ -1000,7 +1000,7 @@ label(C_TMP.x + 27, C_TMP.y + 8, 'tmp', 'wl')
 // bottom right under the class decoder, and its bits rise to feed the columns.
 // ---------------------------------------------------------------------------
 
-const CU = { x: 668, y: 126, w: 1210, h: 860 }
+const CU = { x: 668, y: 146, w: 1210, h: 840 }
 module(CU.x, CU.y, CU.w, CU.h, 'ctrl', 'CONTROL UNIT')
 
 // --- IR -------------------------------------------------------------------------
@@ -1160,8 +1160,8 @@ const OUTPUTS = [
   { name: 'ACC e', clock: 'e', terms: ['fetch 3', 'ALU 6', 'DATA 6', 'JCAEZ 5'] },
   { name: 'FLAGS s', clock: 's', terms: ['ALU 5', 'CLF 4'] },
   { name: 'IR s', clock: 's', terms: ['fetch 2'] },
-  { name: 'IAR e', clock: 'e', terms: ['fetch 1', 'DATA 4', 'JMP 4', 'JCAEZ 4'] },
-  { name: 'IAR s', clock: 's', terms: ['fetch 3', 'DATA 6', 'JMPR 4', 'JMP 5', 'JCAEZ 5', 'JCAEZ 6'] },
+  { name: 'IP e', clock: 'e', terms: ['fetch 1', 'DATA 4', 'JMP 4', 'JCAEZ 4'] },
+  { name: 'IP s', clock: 's', terms: ['fetch 3', 'DATA 6', 'JMPR 4', 'JMP 5', 'JCAEZ 5', 'JCAEZ 6'] },
   { name: 'MAR s', clock: 's', terms: ['fetch 1', 'LD 4', 'ST 4', 'DATA 4', 'JMP 4', 'JCAEZ 4'] },
   { name: 'RAM e', clock: 'e', terms: ['fetch 2', 'LD 5', 'DATA 5', 'JMP 5', 'JCAEZ 6'] },
   { name: 'RAM s', clock: 's', terms: ['ST 5'] },
@@ -1334,28 +1334,28 @@ label(FLAGS.x + 15, FLAGS.y + FLAGS.cell * 4 + 12, 's', 'es')
 control(net('IR s'), `${from('IR s')} V${lane(6)} H${irX(3) + 14} V${IR.y}`)
 label(irX(3) + 11, IR.y - 3, 's', 'es end')
 
-// --- IAR: under its own two output wires ------------------------------------------------
-const IAR = { x: outputPins['IAR s'][0] - 214, y: 918 }
-const iar = register(
-  { name: 'IAR', inputs: busNets, set: net('IAR s'), enable: net('IAR e'), bus },
-  { ...IAR, role: 'ctrl', tab: 'bottom' })
-tap.bottom(iar.shape.cx - TAP_W / 2, IAR.y + REG_H)
-control(net('IAR e'), `${from('IAR e')} V${IAR.y}`)
-control(net('IAR s'), `${from('IAR s')} V${IAR.y}`)
-label(outputPins['IAR e'][0] + 3, IAR.y - 3, 'e', 'es')
-label(outputPins['IAR s'][0] + 3, IAR.y - 3, 's', 'es')
+// --- IP: the instruction pointer, under its own two output wires ------------------------------------------------
+const IP = { x: outputPins['IP s'][0] - 214, y: 918 }
+const ip = register(
+  { name: 'IP', inputs: busNets, set: net('IP s'), enable: net('IP e'), bus },
+  { ...IP, role: 'ctrl', tab: 'bottom' })
+tap.bottom(ip.shape.cx - TAP_W / 2, IP.y + REG_H)
+control(net('IP e'), `${from('IP e')} V${IP.y}`)
+control(net('IP s'), `${from('IP s')} V${IP.y}`)
+label(outputPins['IP e'][0] + 3, IP.y - 3, 'e', 'es')
+label(outputPins['IP s'][0] + 3, IP.y - 3, 's', 'es')
 
 // --- R0 to R3 and their select logic -------------------------------------------------------
 // The registers sit in the top row. Under each one, three AND gates pick it:
 // SRC enable, DST enable and DST set, each ANDed with a decoder line.
 // The decoders sit at the top right, on the IR wires; their lines run left.
 // SRC is the first register field of an instruction, DST the second.
-const REGS = { x: 700, pitch: 269, y: 72, gateY: 190, orY: 150 }
-const LANE = { a: j => 233 + j * 5, b: j => 204 + j * 5, reg: i => 276 + i * 5, turnX: i => 1860 + i * 5 }
+const REGS = { x: 700, pitch: 269, y: 72, gateY: 236, orY: 194 }
+const LANE = { a: j => 279 + j * 5, b: j => 250 + j * 5, reg: i => 322 + i * 5, turnX: i => 1860 + i * 5 }
 // Decoder B sits higher and to the right, so its lines pass over decoder A
 // and the IR wires into A pass under B's lines.
-const DEC_A = { x: 1752, y: 228, w: 48, h: 23 }
-const DEC_B = { x: 1806, y: 199, w: 48, h: 27 }
+const DEC_A = { x: 1752, y: 274, w: 48, h: 23 }
+const DEC_B = { x: 1806, y: 245, w: 48, h: 27 }
 const decSrc = circuit.word('src reg', 4)
 const decDst = circuit.word('dst reg', 4)
 circuit.add(new Decoder(irOut.slice(4, 6), decSrc))
@@ -1420,13 +1420,13 @@ for (let n = 0; n < 4; n++) {
   circuit.add(new Gate('or', [rows[0].out, rows[1].out], e))
   const or = gate('or', g.or, REGS.orY, 'u', e)
   const outY = REGS.gateY - GATE_W
-  wire(rows[0].out, `M${g.a} ${outY} V158 H${or.ins[0][0]} V${or.ins[0][1]}`)
-  wire(rows[1].out, `M${g.b} ${outY} V158 H${or.ins[1][0]} V${or.ins[1][1]}`)
+  wire(rows[0].out, `M${g.a} ${outY} V202 H${or.ins[0][0]} V${or.ins[0][1]}`)
+  wire(rows[1].out, `M${g.b} ${outY} V202 H${or.ins[1][0]} V${or.ins[1][1]}`)
   const bottom = REGS.y + REG_H
   control(e, `M${or.out[0]} ${or.out[1]} V${bottom}`)
   control(s, `M${g.s} ${outY} V${bottom}`)
-  label(or.out[0] + 3, bottom + 11, 'e', 'es')
-  label(g.s + 3, bottom + 11, 's', 'es')
+  label(or.out[0] + 3, bottom + 14, 'e', 'es')
+  label(g.s + 3, bottom + 14, 's', 'es')
 }
 
 // The IR wires themselves, from the register up to their highest branch.
@@ -1930,17 +1930,17 @@ function advance(until) {
 
 // A jump to its own address is how a program for this machine halts, which is
 // what HLT assembles to.
-let lastIar = -1
+let lastIp = -1
 function halted() {
   if (!atInstructionStart()) return false
-  const same = iar.value === lastIar
-  lastIar = iar.value
+  const same = ip.value === lastIp
+  lastIp = ip.value
   return same
 }
 
 function run() {
   stop()
-  lastIar = -1
+  lastIp = -1
   const loop = () => {
     const perSecond = Math.max(1, Number($('speed').value) || 1) * 4
     // A browser timer is not faster than about 250 Hz, so batch the ticks.
