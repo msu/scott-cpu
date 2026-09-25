@@ -2,23 +2,43 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Scott CPU</title>
+<title>Scott Data Systems 1</title>
 <!--
-  A gate-level emulator of the computer from "But How Do It Know?".
+  SDS-1: a gate-level emulator of the computer from "But How Do It Know?".
   Design of the computer copyright John Clark Scott 2009, www.buthowdoitknow.com.
 
-  One file, no dependencies. The script builds the circuit and its drawing
-  from the same description, so a wire on the screen is a net in the machine.
+  The script builds the circuit and its drawing from the same description, so a
+  wire on the screen is a net in the machine. The console around it borrows the
+  look of the panel in src/main/resources/sds1/.
+
+  The editor is Monaco, loaded from a pinned CDN copy. Everything else is in
+  this file, and the page falls back to a plain text box when the CDN cannot be
+  reached, so a lecture survives a dead connection.
 -->
 <style>
   :root {
-    --ink: #1f2933;
-    --line: #8fa3bb;
-    --page: #dde5ee;
-    --paper: #ffffff;
-    --off: #9aa5b1;
-    --on: #e60000;
+    /* the console */
+    --blue:        #7fa9c9;
+    --blue-dk:     #5d8cae;
+    --blue-dkr:    #3f6a8a;
+    --frame:       #4a555d;
+    --label:       #f2f7fa;
 
+    --lamp-off:    #4a3a22;
+    --lamp-on:     #ffd76a;
+    --lamp-glow:   rgba(255, 190, 60, 0.75);
+
+    --desk:        #2f3338;
+    --paper:       #f4efe0;
+    --ink:         #2b2620;
+    --card:        #e9e4d4;
+    --unit:        #d9d3c2;
+    --unit-edge:   #8c8676;
+
+    /* the drawing keeps its own palette, so the circuit stays legible */
+    --line:        #8fa3bb;
+    --off:         #9aa5b1;
+    --on:          #e60000;
     --gp-fill: #e9f2fd;   --gp-edge: #2f6fb5;   --gp-ink: #10355f;
     --alu-fill: #fff3e3;  --alu-edge: #c8791a;  --alu-ink: #6b3d06;
     --ctrl-fill: #e8f6ed; --ctrl-edge: #2f8a4f; --ctrl-ink: #17482a;
@@ -31,92 +51,166 @@
   body {
     display: grid;
     grid-template-rows: auto 1fr;
-    background: var(--page);
-    color: var(--ink);
-    font: 13px Arial, Helvetica, sans-serif;
+    gap: 10px;
+    padding: 10px;
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,0.05) 0 2px, transparent 2px 4px),
+      var(--desk);
+    color: var(--label);
+    font-family: 'Cascadia Mono', Menlo, 'Courier New', monospace;
+    font-size: 13px;
   }
 
-  /* --- toolbar --- */
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px 14px;
-    padding: 6px 10px;
-  }
-  .toolbar .group { display: flex; align-items: center; gap: 4px; }
-  .toolbar .spacer { flex: 1; }
-  button {
-    font: inherit;
-    padding: 4px 10px;
-    border: 1px solid var(--line);
+  /* --- the console ------------------------------------------------------- */
+
+  .panel {
+    background: linear-gradient(180deg, var(--blue) 0%, var(--blue-dk) 60%, var(--blue-dkr) 100%);
+    border: 9px solid var(--frame);
     border-radius: 6px;
-    background: linear-gradient(#fff, #eef3f9);
-    color: var(--ink);
-    cursor: pointer;
+    box-shadow: inset 0 2px 0 rgba(255,255,255,0.35), 0 5px 14px rgba(0,0,0,0.45);
+    position: relative;
   }
-  button:hover { border-color: var(--gp-edge); background: #e4edf8; }
-  #run { border-color: var(--ctrl-edge); color: var(--ctrl-ink); }
-  #stop, #reset { border-color: var(--alu-edge); color: var(--alu-ink); }
-  input[type=number] { width: 64px; font: inherit; }
-  .status {
-    padding: 3px 12px;
-    border: 1px solid var(--gp-edge);
-    border-radius: 999px;
-    background: var(--gp-fill);
-    color: var(--gp-ink);
-    font-weight: 700;
-    font-size: 12px;
+  /* the two screws that hold the panel to the frame */
+  .panel::before, .panel::after {
+    content: ''; position: absolute; width: 8px; height: 8px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #e8eef2, #7d8a92 60%, #55606a);
+    box-shadow: 0 1px 1px rgba(0,0,0,0.4);
   }
-  .credit { color: #5a6673; font-size: 11px; }
+  .panel::before { left: 6px; top: 6px; }
+  .panel::after { right: 6px; top: 6px; }
 
-  /* --- page layout --- */
+  .console { padding: 8px 26px; }
+
+  .brand {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 8px; padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255,255,255,0.28);
+  }
+  .brand b { font-size: 15px; letter-spacing: 0.16em; }
+  .brand span { font-size: 10px; letter-spacing: 0.18em; opacity: 0.85; }
+  .brand .credit { margin-left: auto; font-size: 10px; letter-spacing: 0.04em; opacity: 0.8; }
+  .brand a { color: inherit; }
+
+  .keys { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .keys .sep { width: 10px; }
+
+  .key {
+    min-width: 62px; height: 34px;
+    padding: 3px 9px;
+    border: none; border-radius: 6px;
+    background: linear-gradient(180deg, #74959e 0%, #5d7f89 50%, #4f6e78 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.38),
+      0 2px 0 #33505a,
+      0 3px 5px rgba(0,0,0,0.35);
+    color: #f4e5d4;
+    font-family: inherit; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.11em; line-height: 1.15; text-align: center;
+    cursor: pointer;
+    text-shadow: 0 1px 0 rgba(0,0,0,0.55), 0 -1px 0 rgba(255,255,255,0.35);
+    transition: transform 60ms ease, box-shadow 60ms ease;
+  }
+  .key:hover { background: linear-gradient(180deg, #7d9fa8 0%, #648992 50%, #55747e 100%); }
+  .key:active {
+    transform: translateY(2px);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 1px 0 #33505a, 0 1px 3px rgba(0,0,0,0.35);
+  }
+
+  .field { display: flex; align-items: center; gap: 5px; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; }
+  .field input[type=number] {
+    width: 54px; font-family: inherit; font-size: 11px;
+    background: #eef3f6; color: #22303b;
+    border: 1px solid #22303b; border-radius: 3px; padding: 2px 4px;
+  }
+  .field input[type=color] {
+    width: 30px; height: 24px; padding: 0; cursor: pointer;
+    background: #eef3f6; border: 1px solid #22303b; border-radius: 3px;
+  }
+
+  /* the readout, an amber lamp strip like the panel's own */
+  .readout {
+    margin-left: auto;
+    background: #1d2226; color: var(--lamp-on);
+    border: 1px solid #10161a; border-radius: 3px;
+    padding: 5px 11px;
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.7);
+    text-shadow: 0 0 6px var(--lamp-glow);
+  }
+
+  /* --- the desk ---------------------------------------------------------- */
+
   main {
     display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 10px;
     min-height: 0;
-    padding: 0 8px 8px;
   }
+  main.no-program { grid-template-columns: minmax(0, 1fr); }
+  main.no-program #program { display: none; }
+
+  /* The circuit keeps a light ground. On the blue panel the wires lose their
+     contrast, and this drawing has to read from the back of a lecture room. */
   #machine {
-    width: 100%;
-    height: 100%;
-    min-height: 0;
+    width: 100%; height: 100%; min-height: 0;
     background: var(--paper);
-    border-radius: 10px;
-    box-shadow: 0 2px 14px rgba(31, 41, 51, 0.18);
+    border: 2px solid var(--frame);
+    border-radius: 5px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.4), 0 5px 14px rgba(0,0,0,0.4);
   }
-  #program {
-    display: grid;
-    grid-template-rows: auto 1fr auto 1fr auto;
-    gap: 6px;
-    width: 300px;
-    min-height: 0;
-    padding: 10px;
-    background: var(--paper);
-    border-radius: 10px;
-    box-shadow: 0 2px 14px rgba(31, 41, 51, 0.18);
+
+  .unit {
+    background: var(--unit); border: 1px solid var(--unit-edge); border-radius: 4px;
+    color: var(--ink); display: flex; flex-direction: column; min-height: 0;
+    box-shadow: 0 5px 14px rgba(0,0,0,0.4);
   }
-  #program.closed { display: none; }
-  #program h2 { margin: 0; font-size: 13px; }
-  #program textarea, #program pre {
-    margin: 0;
-    padding: 6px;
-    min-height: 0;
-    overflow: auto;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: #fbfdff;
-    font: 12px ui-monospace, Menlo, Consolas, monospace;
-    resize: none;
+  .unit-title {
+    background: linear-gradient(180deg, #c3bca8, #ada695);
+    border-bottom: 1px solid var(--unit-edge);
+    padding: 4px 9px; font-size: 10px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--ink);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .unit-title .spacer { margin-left: auto; }
+  .unit-body {
+    flex: 1; min-height: 0; display: grid;
+    grid-template-rows: minmax(0, 3fr) auto minmax(0, 1fr);
+    gap: 7px; padding: 8px;
+  }
+
+  /* the editor, and the plain box it falls back to */
+  #editor, #source {
+    min-height: 0; border: 1px solid var(--unit-edge); border-radius: 3px;
+    background: var(--card); overflow: hidden;
+  }
+  #source {
+    width: 100%; resize: none; padding: 7px; color: var(--ink);
+    font-family: inherit; font-size: 12px; line-height: 17px;
+  }
+
+  #listing {
+    margin: 0; padding: 7px; min-height: 0; overflow: auto;
+    background: var(--card); color: var(--ink);
+    border: 1px solid var(--unit-edge); border-radius: 3px;
+    font-family: inherit; font-size: 11px; line-height: 15px;
     white-space: pre;
   }
-  #listing .error { color: #b00020; white-space: pre-wrap; }
-  #program .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  dialog { max-width: 520px; border: 1px solid var(--line); border-radius: 8px; }
-  dialog pre { font: 12px ui-monospace, Menlo, Consolas, monospace; }
+  #listing .error { color: #8f2020; white-space: pre-wrap; }
 
-  /* --- the drawing --- */
+  .unit-keys { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .unit-keys .key { min-width: 0; height: 28px; font-size: 9px; }
+  .unit-keys .field { color: #5a5347; }
+  .unit-keys .field input { border-color: var(--unit-edge); background: #f2eee2; }
+
+  dialog {
+    max-width: 640px;
+    background: var(--paper); color: var(--ink);
+    border: 9px solid var(--frame); border-radius: 6px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+  }
+  dialog pre { font-family: inherit; font-size: 12px; line-height: 17px; white-space: pre-wrap; }
+
+  /* --- the drawing ------------------------------------------------------- */
   svg text { font-family: Arial, Helvetica, sans-serif; fill: var(--ink); }
   .wire { fill: none; stroke: var(--off); stroke-width: 1.6; stroke-linejoin: round; }
   .wire.on { stroke: var(--on); stroke-width: 2.4; }
@@ -161,72 +255,88 @@
   .reg.ctrl .plate, .reg.ctrl .tab { fill: var(--ctrl-fill); stroke: var(--ctrl-edge); }
   .reg.ctrl text { fill: var(--ctrl-ink); }
 
-  /* A wide transparent copy of a control wire. A click holds the wire on. */
   .hit { fill: none; stroke: transparent; stroke-width: 12; cursor: pointer; }
   .hit:hover { stroke: rgba(255, 138, 0, 0.3); }
   .hit.held { stroke: rgba(255, 138, 0, 0.45); }
 
-  /* Memory */
   .ram-cell { fill: #f4faf6; stroke: #6fa189; stroke-width: 0.8; }
   .ram-cell.used { fill: #ffffff; }
   .ram-cell.selected { fill: #ffe3e3; stroke: var(--on); stroke-width: 2.4; }
-  .ram-text { font: 12.5px ui-monospace, Menlo, Consolas, monospace; fill: #234536; }
+  .ram-text { font: 12.5px 'Cascadia Mono', Menlo, Consolas, monospace; fill: #234536; }
   .ram-bit { fill: transparent; cursor: pointer; }
   .ram-bit:hover { fill: rgba(255, 138, 0, 0.3); }
   .ram-head { font-size: 10px; fill: #234536; }
 </style>
 </head>
 <body>
-<header class="toolbar">
-  <div class="group">
-    <button id="run">run</button>
-    <button id="stop">stop</button>
-    <button id="reset" title="Clear the registers. Memory stays.">reset</button>
+
+<header class="panel console">
+  <div class="brand">
+    <b>SCOTT DATA SYSTEMS 1</b>
+    <span>X266 &middot; 8 BIT &middot; 256 WORDS</span>
+    <span class="credit">Computer design &copy; John Clark Scott 2009,
+      <a href="https://buthowdoitknow.com/">buthowdoitknow.com</a></span>
   </div>
-  <div class="group">
-    <button id="back" title="Undo the last tick">back tick</button>
-    <button id="tick" title="One quarter of a step">tick</button>
-    <button id="step" title="One stepper step, 4 ticks">step</button>
-    <button id="instruction" title="One instruction, 6 steps">instruction</button>
+  <div class="keys">
+    <button class="key" id="run">START</button>
+    <button class="key" id="stop">STOP</button>
+    <button class="key" id="reset" title="Clear the registers. Memory stays.">RESET</button>
+    <span class="sep"></span>
+    <button class="key" id="back" title="Undo the last tick">BACK<br>TICK</button>
+    <button class="key" id="tick" title="One quarter of a step">TICK</button>
+    <button class="key" id="step" title="One stepper step, 4 ticks">SINGLE<br>STEP</button>
+    <button class="key" id="instruction" title="One instruction, 6 steps">INSTR</button>
+    <span class="sep"></span>
+    <label class="field" for="speed">steps/s <input id="speed" type="number" min="1" max="200" value="2"></label>
+    <label class="field" for="wire-color">wire <input id="wire-color" type="color" value="#e60000"></label>
+    <span class="sep"></span>
+    <button class="key" id="help">HELP</button>
+    <button class="key" id="toggle-program">PROGRAM</button>
+    <span class="readout" id="status">stopped</span>
   </div>
-  <div class="group">
-    <label for="speed">steps / s</label>
-    <input id="speed" type="number" min="1" max="200" value="2">
-  </div>
-  <div class="group">
-    <label for="wire-color">wire</label>
-    <input id="wire-color" type="color" value="#e60000">
-  </div>
-  <span class="status" id="status">stopped</span>
-  <span class="spacer"></span>
-  <span class="credit">Computer design &copy; John Clark Scott 2009, buthowdoitknow.com</span>
-  <button id="help">help</button>
-  <button id="toggle-program">program</button>
 </header>
 
 <main>
   <svg id="machine" viewBox="-4 -8 1938 1252" preserveAspectRatio="xMidYMid meet"></svg>
-  <aside id="program">
-    <h2>program</h2>
-    <textarea id="source" spellcheck="false"></textarea>
-    <div class="row">
-      <button id="assemble" title="Assemble and load into memory">assemble &amp; load</button>
-      <label for="origin">at</label>
-      <input id="origin" type="number" min="0" max="255" value="0">
-    </div>
-    <pre id="listing"></pre>
-    <div class="row">
-      <button id="sample">sample: 5 x 5</button>
-      <button id="clear-ram">clear memory</button>
+  <aside class="unit" id="program">
+    <div class="unit-title">Assembler <span class="spacer"></span><span id="editor-mode">x266</span></div>
+    <div class="unit-body">
+      <div id="editor"></div>
+      <textarea id="source" spellcheck="false" hidden></textarea>
+      <div class="unit-keys">
+        <button class="key" id="assemble">ASSEMBLE &amp; LOAD</button>
+        <label class="field" for="origin">at <input id="origin" type="number" min="0" max="255" value="0"></label>
+        <button class="key" id="sample">SAMPLE</button>
+        <button class="key" id="clear-ram">CLEAR MEM</button>
+      </div>
+      <pre id="listing"></pre>
     </div>
   </aside>
 </main>
 
 <dialog id="help-dialog">
   <pre id="help-text"></pre>
-  <form method="dialog"><button>close</button></form>
+  <form method="dialog"><button class="key">CLOSE</button></form>
 </dialog>
 
+<!-- Monaco loads from a pinned CDN copy, the same one cpu/mtmc-16 uses, so the
+     13 MB editor is not checked in. The page works without it. -->
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+<script>
+  const MONACO_BASE = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/';
+  if (window.require) {
+    require.config({ paths: { vs: MONACO_BASE + 'vs' } });
+    // Browsers refuse a cross-origin worker script, so the worker is a
+    // same-origin data: URL that imports the CDN copy.
+    window.MonacoEnvironment = {
+      getWorkerUrl: function () {
+        return 'data:text/javascript;charset=utf-8,' + encodeURIComponent(
+          'self.MonacoEnvironment={baseUrl:"' + MONACO_BASE + '"};' +
+          'importScripts("' + MONACO_BASE + 'vs/base/worker/workerMain.js");');
+      }
+    };
+  }
+</script>
 <script type="module">
 // ---------------------------------------------------------------------------
 // 1. The simulator
@@ -1047,9 +1157,9 @@ const OUTPUTS = [
   { name: 'MAR s', clock: 's', terms: ['fetch 1', 'LD 4', 'ST 4', 'DATA 4', 'JMP 4', 'JCAEZ 4'] },
   { name: 'RAM e', clock: 'e', terms: ['fetch 2', 'LD 5', 'DATA 5', 'JMP 5', 'JCAEZ 6'] },
   { name: 'RAM s', clock: 's', terms: ['ST 5'] },
-  { name: 'REG A e', clock: 'e', terms: ['ALU 5', 'LD 4', 'ST 4'] },
-  { name: 'REG B e', clock: 'e', terms: ['ALU 4', 'ST 5', 'JMPR 4'] },
-  { name: 'REG B s', clock: 's', terms: ['ALU 6', 'LD 5', 'DATA 5'] },
+  { name: 'SRC e', clock: 'e', terms: ['ALU 5', 'LD 4', 'ST 4'] },
+  { name: 'DST e', clock: 'e', terms: ['ALU 4', 'ST 5', 'JMPR 4'] },
+  { name: 'DST s', clock: 's', terms: ['ALU 6', 'LD 5', 'DATA 5'] },
 ]
 
 // --- the AND plane: one row for each term, gates pointing left -----------------------
@@ -1229,20 +1339,21 @@ label(outputPins['IAR s'][0] + 3, IAR.y - 3, 's', 'es')
 
 // --- R0 to R3 and their select logic -------------------------------------------------------
 // The registers sit in the top row. Under each one, three AND gates pick it:
-// REG A enable, REG B enable and REG B set, each ANDed with a decoder line.
+// SRC enable, DST enable and DST set, each ANDed with a decoder line.
 // The decoders sit at the top right, on the IR wires; their lines run left.
+// SRC is the first register field of an instruction, DST the second.
 const REGS = { x: 700, pitch: 269, y: 72, gateY: 190, orY: 150 }
 const LANE = { a: j => 233 + j * 5, b: j => 204 + j * 5, reg: i => 276 + i * 5, turnX: i => 1860 + i * 5 }
 // Decoder B sits higher and to the right, so its lines pass over decoder A
 // and the IR wires into A pass under B's lines.
 const DEC_A = { x: 1752, y: 228, w: 48, h: 23 }
 const DEC_B = { x: 1806, y: 199, w: 48, h: 27 }
-const decA = circuit.word('reg a', 4)
-const decB = circuit.word('reg b', 4)
-circuit.add(new Decoder(irOut.slice(4, 6), decA))
-circuit.add(new Decoder(irOut.slice(6, 8), decB))
-boxWithLabel(DEC_A.x, DEC_A.y, DEC_A.w, DEC_A.h, 'A 2x4', 'small mid')
-boxWithLabel(DEC_B.x, DEC_B.y, DEC_B.w, DEC_B.h, 'B 2x4', 'small mid')
+const decSrc = circuit.word('src reg', 4)
+const decDst = circuit.word('dst reg', 4)
+circuit.add(new Decoder(irOut.slice(4, 6), decSrc))
+circuit.add(new Decoder(irOut.slice(6, 8), decDst))
+boxWithLabel(DEC_A.x, DEC_A.y, DEC_A.w, DEC_A.h, 'SRC 2x4', 'small mid')
+boxWithLabel(DEC_B.x, DEC_B.y, DEC_B.w, DEC_B.h, 'DST 2x4', 'small mid')
 // Bits 4 to 7 jog right above the stepper and rise into the decoders. Bit 4
 // turns first and highest, so no jog crosses another bit's wire.
 const IR_JOG_Y = i => 254 + (i - 4) * 5
@@ -1258,7 +1369,7 @@ const gateXs = n => {
 }
 const first = gateXs(0)
 
-const regLanes = ['REG A e', 'REG B e', 'REG B s'].map((name, i) => {
+const regLanes = ['SRC e', 'DST e', 'DST s'].map((name, i) => {
   const y = LANE.reg(i)
   const bottomY = PLANE.outY + 32 - i * 4
   const n = net(name)
@@ -1268,23 +1379,27 @@ const regLanes = ['REG A e', 'REG B e', 'REG B s'].map((name, i) => {
 })
 // A line leaves the side of its decoder that faces its register.
 const decLane = (box, y, endX) => `M${endX < box.x ? box.x : box.x + box.w} ${y} H${endX}`
-decA.forEach((n, j) => wire(n, decLane(DEC_A, LANE.a(j), gateXs(j).a + 3)))
-decB.forEach((n, j) => wire(n, decLane(DEC_B, LANE.b(j), gateXs(j).b + 3)))
+decSrc.forEach((n, j) => wire(n, decLane(DEC_A, LANE.a(j), gateXs(j).a + 3)))
+decDst.forEach((n, j) => wire(n, decLane(DEC_B, LANE.b(j), gateXs(j).b + 3)))
 
+// The registers are named A to D, the way an 8-bit machine names them. The
+// two operand fields of an instruction are SRC and DST, so the field names
+// never collide with a register name.
+const REG_NAMES = ['A', 'B', 'C', 'D']
 for (let n = 0; n < 4; n++) {
   const px = REGS.x + n * REGS.pitch
-  const e = net(`R${n} e`)
-  const s = net(`R${n} s`)
+  const e = net(`${REG_NAMES[n]} e`)
+  const s = net(`${REG_NAMES[n]} s`)
   const reg = register(
-    { name: `R${n}`, inputs: busNets, set: s, enable: e, bus },
+    { name: REG_NAMES[n], inputs: busNets, set: s, enable: e, bus },
     { x: px, y: REGS.y, role: 'gp' })
   tap.top(reg.shape.cx - TAP_W / 2, REGS.y)
 
   const g = gateXs(n)
   const rows = [
-    { x: g.a, lane: regLanes[0], dec: decA[n], decY: LANE.a(n), out: net(`R${n} e a`), end: true },
-    { x: g.b, lane: regLanes[1], dec: decB[n], decY: LANE.b(n), out: net(`R${n} e b`), end: true },
-    { x: g.s, lane: regLanes[2], dec: decB[n], decY: LANE.b(n), out: s, end: false },
+    { x: g.a, lane: regLanes[0], dec: decSrc[n], decY: LANE.a(n), out: net(`${REG_NAMES[n]} e src`), end: true },
+    { x: g.b, lane: regLanes[1], dec: decDst[n], decY: LANE.b(n), out: net(`${REG_NAMES[n]} e dst`), end: true },
+    { x: g.s, lane: regLanes[2], dec: decDst[n], decY: LANE.b(n), out: s, end: false },
   ]
   for (const row of rows) {
     circuit.add(new Gate('and', [row.lane.net, row.dec], row.out))
@@ -1426,124 +1541,321 @@ function loadMemory(bytes, origin = 0) {
 loadMemory([])
 
 // ---------------------------------------------------------------------------
-// 6. The assembler
+// 6. The x266 assembler
+//
+// x266 is x366 assembly for this machine. Every mnemonic is one x366 mnemonic
+// that one SDS-1 instruction performs, so the source reads like the x366 the
+// course teaches later and the bytes run on the hardware below.
+//
+// This mirrors X266Assembler.java, Instruction.java and Instructions.java, so
+// a program assembles to the same bytes in either tool. It adds line numbers
+// to the errors, which a browser can afford and a compiler cannot.
+//
+// Assembly runs in three phases, and the order is why an assembler reads its
+// source twice:
+//   1. address    every instruction gets its address, by adding up the sizes
+//                 ahead of it
+//   2. labels     every label records the address it sits on
+//   3. encode     every instruction builds its bytes, which is the first point
+//                 at which a label can be read
 // ---------------------------------------------------------------------------
 
-const ALU_CODES = { ADD: 0, SHR: 1, SHL: 2, NOT: 3, AND: 4, OR: 5, XOR: 6, CMP: 7 }
+const REGISTERS = { A: 0, B: 1, C: 2, D: 3 }
 
-const HELP = `One instruction on each line. A comment starts with ";".
-A number is decimal, 0x hex, or 8 binary digits. "name:" makes a label.
+// The four-bit opcodes of the machine, as the control unit decodes them.
+const OP = {
+  LD: 0b0000, ST: 0b0001, DATA: 0b0010,
+  JMP: 0b0100, JCAEZ: 0b0101, IO: 0b0111,
+  ADD: 0b1000, SHR: 0b1001, SHL: 0b1010, NOT: 0b1011,
+  AND: 0b1100, OR: 0b1101, XOR: 0b1110, CMP: 0b1111,
+}
 
-ADD  RA, RB    1000aabb   RB = RA + RB (also SHR SHL NOT AND OR XOR)
-CMP  RA, RB    1111aabb   sets the flags only
-LD   RA, RB    0000aabb   RB = memory[RA]
-ST   RA, RB    0001aabb   memory[RA] = RB
-DATA RB, n     001000bb n RB = n
-JMPR RB        001100bb   jump to the address in RB
-JMP  addr      01000000 a jump
-JCAEZ addr     0101caez a jump if a named flag is on: JC, JA, JE, JZ, JAE ...
-CLF            01100000   clear the flags
+// Two operands, and the ALU writes into the second field, so the operands swap.
+const ALU_TWO = ['ADD', 'AND', 'OR', 'XOR']
+// One operand, which is both inputs of the ALU.
+const ALU_ONE = ['NOT', 'SHL', 'SHR']
+// The four low bits of JCAEZ select the flags, in the order carry, a larger,
+// equal, zero.
+const JUMPS = { JE: 0b0010, JEQ: 0b0010, JG: 0b0100, JGE: 0b0110 }
 
-An ALU instruction with one register uses it for RA and RB: SHL R0.
-IN and OUT are not wired. The machine has no I/O devices.
+const MEMORY_SIZE = 256
 
-With the clock stopped:
-  click a register bit to flip it
-  click an enable wire, a set wire, a step wire or an op wire to hold it on`
+// An x366 instruction with no single SDS-1 instruction behind it. Naming them
+// gives a better error than "no instruction".
+const NOT_IN_X266 = {
+  SUB: 'the machine has no subtractor',
+  INC: 'the machine has no increment. Add a register that holds 1',
+  DEC: 'the machine has no decrement',
+  LEA: 'the machine has no address arithmetic',
+  JNE: 'the machine can jump on equal, larger, or both',
+  JL: 'the machine can jump on equal, larger, or both',
+  JLE: 'the machine can jump on equal, larger, or both',
+  JZ: 'the machine can jump on equal, larger, or both',
+  JC: 'the machine can jump on equal, larger, or both',
+  LOOP: 'the machine has no loop instruction. Compare and jump',
+  CLF: 'x266 clears no flags. A conditional jump follows its CMP directly',
+}
 
-function assemble(source) {
-  const lines = source.split('\n').map((text, i) => ({
-    number: i + 1,
-    text: text.replace(/;.*$/, '').trim(),
-  }))
-  const labels = new Map()
-  const items = []     // { line, address, bytes: [number | string] }
-  let address = 0
-
-  const register = (token, line) => {
-    const match = /^R([0-3])$/i.exec(token ?? '')
-    if (!match) throw new Error(`line ${line.number}: "${token ?? ''}" is not a register. Use R0 to R3.`)
-    return Number(match[1])
+class AsmError extends Error {
+  constructor(line, message) {
+    super(line ? `line ${line.number}: ${message}` : message)
   }
+}
 
-  for (const line of lines) {
-    let text = line.text
-    const labelMatch = /^([A-Za-z_]\w*):\s*/.exec(text)
-    if (labelMatch) {
-      labels.set(labelMatch[1].toUpperCase(), address)
-      text = text.slice(labelMatch[0].length)
-    }
-    if (!text) continue
-    const [mnemonic, ...args] = text.split(/[\s,]+/)
-    const op = mnemonic.toUpperCase()
-    let bytes
-    if (op in ALU_CODES) {
-      const ra = register(args[0], line)
-      const rb = args.length > 1 ? register(args[1], line) : ra
-      bytes = [0x80 | (ALU_CODES[op] << 4) | (ra << 2) | rb]
-    } else if (op === 'LD' || op === 'ST') {
-      bytes = [(op === 'ST' ? 0x10 : 0) | (register(args[0], line) << 2) | register(args[1], line)]
-    } else if (op === 'DATA') {
-      bytes = [0x20 | register(args[0], line), args[1]]
-    } else if (op === 'JMPR') {
-      bytes = [0x30 | register(args[0], line)]
-    } else if (op === 'JMP') {
-      bytes = [0x40, args[0]]
-    } else if (/^J[CAEZ]{1,4}$/.test(op)) {
-      const mask = [...op.slice(1)].reduce((m, flag) => m | (8 >> 'CAEZ'.indexOf(flag)), 0)
-      bytes = [0x50 | mask, args[0]]
-    } else if (op === 'CLF') {
-      bytes = [0x60]
-    } else if (args.length === 0 && /^[\dA-Fx]+$/i.test(op)) {
-      bytes = [op]
+// --- reading the text ------------------------------------------------------
+
+/** Removes a comment and the surrounding space. */
+function stripComment(text) {
+  const comment = text.indexOf(';')
+  return (comment >= 0 ? text.slice(0, comment) : text).trim()
+}
+
+/**
+ * Splits a line into the mnemonic and its operands. Commas are optional, as
+ * x366 allows, and a bracket holds its contents together.
+ */
+function splitParts(text) {
+  const parts = []
+  let current = ''
+  let inBrackets = false
+  for (const ch of text) {
+    if (ch === '[') inBrackets = true
+    if (ch === ']') inBrackets = false
+    if ((ch === ',' || /\s/.test(ch)) && !inBrackets) {
+      if (current) parts.push(current)
+      current = ''
     } else {
-      throw new Error(`line ${line.number}: "${mnemonic}" is not an instruction. Open help for the list.`)
+      current += ch
     }
-    items.push({ line, address, bytes })
-    address += bytes.length
   }
+  if (current) parts.push(current)
+  if (parts.length) parts[0] = parts[0].toUpperCase()
+  return parts
+}
 
-  const value = (token, line) => {
-    if (typeof token === 'number') return token
-    const text = token ?? ''
-    if (labels.has(text.toUpperCase())) return labels.get(text.toUpperCase())
-    const number = /^[01]{8}$/.test(text) ? parseInt(text, 2) : Number(text)
-    if (text === '' || !Number.isInteger(number) || number < 0 || number > 255) {
-      throw new Error(`line ${line.number}: "${text}" is not a number from 0 to 255 or a label.`)
+function parse(source) {
+  const items = []
+  source.split('\n').forEach((raw, i) => {
+    const line = { number: i + 1, text: raw.trim() }
+    let text = stripComment(raw)
+
+    let label = null
+    const colon = text.indexOf(':')
+    if (colon >= 0) {
+      label = text.slice(0, colon).trim().toUpperCase()
+      text = text.slice(colon + 1).trim()
+      if (!/^[A-Z_]\w*$/.test(label)) throw new AsmError(line, `"${label}" is not a label name`)
     }
-    return number
-  }
-  for (const item of items) item.bytes = item.bytes.map(b => value(b, item.line))
-  if (address > 256) throw new Error(`The program is ${address} bytes. Memory holds 256.`)
+
+    const parts = splitParts(text)
+    if (label === null && parts.length === 0) return
+    items.push({ line, label, parts, mnemonic: parts[0] ?? '' })
+  })
   return items
 }
 
-const SAMPLE = `; 5 x 5 by shift and add. Result in R2.
-DATA R0, 5
-DATA R1, 5
-DATA R3, 1
-XOR R2
-next: CLF
-SHR R0
-JC add
-JMP shift
-add: CLF
-ADD R1, R2
-shift: CLF
-SHL R1
-SHL R3
-JC done
-JMP next
-done: JMP done`
+// --- reading one operand ---------------------------------------------------
 
-// Listings to start a lecture from: open the page with ?prog=NAME.
+function reg(item, name) {
+  const code = REGISTERS[(name ?? '').trim().toUpperCase()]
+  if (code === undefined) {
+    throw new AsmError(item.line, `"${name}" is not a register. The machine has A, B, C and D`)
+  }
+  return code
+}
+
+/** The register inside a bracket operand, which holds the address. */
+function bracketRegister(item, operand) {
+  const inner = operand.slice(1, -1).trim()
+  if (inner.includes('+') || inner.includes('-')) {
+    throw new AsmError(item.line,
+      `${operand} is not in x266. The machine addresses memory through a register only`)
+  }
+  if (!(inner.toUpperCase() in REGISTERS)) {
+    throw new AsmError(item.line,
+      `${operand} is not in x266. The machine has no absolute address. Load it into a register first`)
+  }
+  return reg(item, inner)
+}
+
+/** A number, or a label the program has resolved. */
+function value(item, text, labels) {
+  text = (text ?? '').trim()
+  if (!text) throw new AsmError(item.line, `${item.mnemonic} needs an operand`)
+
+  const radix = { '0x': 16, '0X': 16, '0b': 2, '0B': 2 }[text.slice(0, 2)]
+  const digits = radix ? text.slice(2) : text
+  const valid = radix === 16 ? /^[0-9a-fA-F]+$/ : radix === 2 ? /^[01]+$/ : /^\d+$/
+  if (valid.test(digits)) return parseInt(digits, radix ?? 10) & 0xff
+
+  const address = labels.get(text.toUpperCase())
+  if (address === undefined) throw new AsmError(item.line, `there is no label named "${text}"`)
+  return address
+}
+
+// --- the three phases ------------------------------------------------------
+
+/** Phase one: how many bytes one line occupies. */
+function sizeOf(item) {
+  const op = item.mnemonic
+  const arg = i => item.parts[i] ?? ''
+  if (!op) return 0                                   // a label on its own line
+  if (op === 'DB') return item.parts.length - 1
+  if (op === 'HLT' || op === 'HALT') return 2         // a jump to its own address
+  if (op === 'JMP' || op in JUMPS) return 2
+  // MOV carries a second byte only when its source is an immediate.
+  if (op === 'MOV') {
+    const src = arg(2)
+    return !src.startsWith('[') && !(src.toUpperCase() in REGISTERS) ? 2 : 1
+  }
+  return 1
+}
+
+/** Builds the bytes of the three MOV forms: an immediate, a load and a store. */
+function encodeMove(item, labels) {
+  const dst = item.parts[1] ?? ''
+  const src = item.parts[2] ?? ''
+  const dstMemory = dst.startsWith('[')
+  const srcMemory = src.startsWith('[')
+
+  if (dstMemory && srcMemory) {
+    throw new AsmError(item.line, `memory to memory is not in x266: MOV ${dst}, ${src}`)
+  }
+  if (srcMemory) {                                    // MOV A, [B]
+    return [(OP.LD << 4) | (bracketRegister(item, src) << 2) | reg(item, dst)]
+  }
+  if (dstMemory) {                                    // MOV [B], A
+    return [(OP.ST << 4) | (bracketRegister(item, dst) << 2) | reg(item, src)]
+  }
+  if (src.toUpperCase() in REGISTERS) {
+    throw new AsmError(item.line,
+      `MOV ${dst}, ${src} is not in x266. The machine has no register to register move`)
+  }
+  return [(OP.DATA << 4) | reg(item, dst), value(item, src, labels)]   // MOV A, 10
+}
+
+/** Phase three: the bytes of one line. */
+function encode(item, labels) {
+  const op = item.mnemonic
+  const a1 = item.parts[1] ?? ''
+  const a2 = item.parts[2] ?? ''
+
+  if (!op) return []
+  if (op === 'DB') return item.parts.slice(1).map(part => value(item, part, labels) & 0xff)
+
+  // The machine has no halt, so it stops by jumping to itself.
+  if (op === 'HLT' || op === 'HALT') return [OP.JMP << 4, item.address]
+  if (op === 'JMP') return [OP.JMP << 4, value(item, a1, labels)]
+  if (op in JUMPS) return [(OP.JCAEZ << 4) | JUMPS[op], value(item, a1, labels)]
+
+  if (op === 'MOV') return encodeMove(item, labels)
+
+  // The machine has a device in the instruction set, but this emulator draws
+  // no device to attach to it.
+  if (op === 'SYSCALL') {
+    throw new AsmError(item.line,
+      `SYSCALL is not in this emulator. The drawing has no input or output device, `
+      + `so PRINT and READ have nothing to reach. Use the register and memory panels instead`)
+  }
+
+  // Two operands, so the x366 destination goes in the second field.
+  if (ALU_TWO.includes(op)) return [(OP[op] << 4) | (reg(item, a2) << 2) | reg(item, a1)]
+  // CMP writes no register, so its operands keep the x366 order.
+  if (op === 'CMP') return [(OP.CMP << 4) | (reg(item, a1) << 2) | reg(item, a2)]
+  // One operand, so the register is both inputs of the ALU.
+  if (ALU_ONE.includes(op)) return [(OP[op] << 4) | (reg(item, a1) << 2) | reg(item, a1)]
+
+  if (op in NOT_IN_X266) throw new AsmError(item.line, `${op} is not in x266: ${NOT_IN_X266[op]}`)
+  throw new AsmError(item.line, `there is no instruction named ${op}. Open help for the list`)
+}
+
+/** Assembles the source and returns one entry per line, with its bytes. */
+function assemble(source) {
+  const items = parse(source)
+
+  // Phase one: addresses.
+  let address = 0
+  for (const item of items) {
+    item.address = address
+    item.size = sizeOf(item)
+    address += item.size
+  }
+  if (address > MEMORY_SIZE) {
+    throw new AsmError(null, `the program is ${address} bytes, and the machine holds ${MEMORY_SIZE}`)
+  }
+
+  // Phase two: labels.
+  const labels = new Map()
+  for (const item of items) {
+    if (item.label === null) continue
+    if (labels.has(item.label)) throw new AsmError(item.line, `the label ${item.label} is defined twice`)
+    labels.set(item.label, item.address)
+  }
+
+  // Phase three: bytes.
+  for (const item of items) {
+    item.bytes = encode(item, labels)
+  }
+  return items.filter(item => item.bytes.length > 0)
+}
+
+// --- listings to start a lecture from --------------------------------------
+
+const SAMPLE = `; 5 x 5 by repeated addition. The product lands in A.
+        MOV A, 0        ; the product
+        MOV B, 5        ; the multiplicand
+        MOV C, 0        ; how many times it has been added
+        MOV D, 1        ; the step
+loop:   ADD A, B        ; A = A + B
+        ADD C, D        ; C = C + 1
+        CMP C, B        ; five times yet?
+        JE  done
+        JMP loop
+done:   HLT`
+
 const PROGRAMS = {
-  and: 'DATA R0, 11001010\nDATA R1, 01101100\nAND R0, R1\nend: JMP end',
+  and: `; AND keeps only the bits that are on in both registers.
+        MOV A, 0b11001010
+        MOV B, 0b01101100
+        AND A, B
+        HLT`,
   sample: SAMPLE,
 }
 
+const HELP = `x266 is x366 assembly for the SDS-1. Every instruction here is one
+x366 mnemonic that one machine instruction performs.
+
+The registers are A, B, C and D. Each one holds a byte.
+A number is decimal, 0x hex or 0b binary. "name:" marks a label.
+A comment starts with ";". Commas are optional.
+
+  MOV A, 10       load a number into a register
+  MOV A, [B]      read the memory that B points at
+  MOV [B], A      write A into the memory that B points at
+  ADD A, B        A = A + B, and the same for AND, OR, XOR
+  NOT A           A = NOT A, and the same for SHL and SHR, one place
+  CMP A, B        set the flags only
+  JMP label       jump
+  JE label        jump when the last CMP was equal
+  JG label        jump when the first operand was larger, unsigned
+  JGE label       either of the two above
+  HLT             stop, by jumping to its own address
+  DB 1, 2, 3      data bytes
+
+CMP sets the flags and a jump reads them, so a conditional jump must follow
+its CMP directly.
+
+These are not in x266, because no single machine instruction performs them:
+SUB, INC, DEC, LEA, JNE, JL, JLE, LOOP, MOV A, B and MOV A, [0x20].
+SYSCALL is not here either, because this drawing has no device attached.
+
+With the clock stopped:
+  click a register bit or a memory bit to flip it
+  click a wire to hold it on, and click it again to let it go
+  click the clock for its next phase, and the stepper for its next step`
+
 // ---------------------------------------------------------------------------
-// 7. The page: clock buttons, the run loop and the program panel
+// 7. The console: the keys, the run loop and the assembler panel
 // ---------------------------------------------------------------------------
 
 const $ = id => document.getElementById(id)
@@ -1608,7 +1920,8 @@ function advance(until) {
   showStatus('stopped')
 }
 
-// A jump to its own address is how a program for this machine halts.
+// A jump to its own address is how a program for this machine halts, which is
+// what HLT assembles to.
 let lastIar = -1
 function halted() {
   if (!atInstructionStart()) return false
@@ -1654,10 +1967,127 @@ function reset() {
   showStatus('stopped')
 }
 
+/* --- the editor -----------------------------------------------------------
+ * Monaco comes from a CDN, so it can fail. The page keeps a plain text box
+ * behind it and uses that when Monaco does not arrive. Everything else talks
+ * to the editor through source(), so neither path is a special case. */
+let monacoEditor = null
+const source = {
+  get: () => (monacoEditor ? monacoEditor.getValue() : $('source').value),
+  set: text => (monacoEditor ? monacoEditor.setValue(text) : ($('source').value = text)),
+}
+
+function usePlainEditor(why) {
+  $('editor').hidden = true
+  $('source').hidden = false
+  $('editor-mode').textContent = `x266 | plain text (${why})`
+}
+
+function startEditor() {
+  if (!window.require) return usePlainEditor('no editor')
+  let arrived = false
+  // A CDN that hangs would otherwise leave the pane blank for ever.
+  const giveUp = setTimeout(() => { if (!arrived) usePlainEditor('offline') }, 6000)
+
+  require(['vs/editor/editor.main'], () => {
+    arrived = true
+    clearTimeout(giveUp)
+
+    monaco.languages.register({ id: 'x266' })
+    monaco.languages.setMonarchTokensProvider('x266', {
+      ignoreCase: true,
+      tokenizer: {
+        root: [
+          [/;.*$/, 'comment'],
+          [/^\s*[A-Za-z_]\w*\s*:/, 'type.identifier'],
+          [/\b(?:MOV|ADD|AND|OR|XOR|NOT|SHL|SHR|CMP|DB)\b/, 'keyword'],
+          [/\b(?:JMP|JE|JEQ|JG|JGE|HLT|HALT)\b/, 'keyword.flow'],
+          [/\b[ABCD]\b/, 'variable.predefined'],
+          [/\b0x[0-9a-fA-F]+\b/, 'number.hex'],
+          [/\b0b[01]+\b/, 'number.binary'],
+          [/\b\d+\b/, 'number'],
+          [/[[\]]/, 'delimiter.bracket'],
+          [/[A-Za-z_]\w*/, 'identifier'],
+        ],
+      },
+    })
+
+    const MNEMONICS = ['MOV', 'ADD', 'AND', 'OR', 'XOR', 'NOT', 'SHL', 'SHR',
+      'CMP', 'JMP', 'JE', 'JG', 'JGE', 'HLT', 'DB']
+    monaco.languages.registerCompletionItemProvider('x266', {
+      provideCompletionItems: (model, position) => {
+        const word = model.getWordUntilPosition(position)
+        const range = {
+          startLineNumber: position.lineNumber, endLineNumber: position.lineNumber,
+          startColumn: word.startColumn, endColumn: word.endColumn,
+        }
+        return {
+          suggestions: [
+            ...MNEMONICS.map(label => ({
+              label, range, insertText: label,
+              kind: monaco.languages.CompletionItemKind.Keyword,
+            })),
+            ...['A', 'B', 'C', 'D'].map(label => ({
+              label, range, insertText: label,
+              kind: monaco.languages.CompletionItemKind.Variable,
+            })),
+          ],
+        }
+      },
+    })
+
+    // The panel's own paper and ink, so the editor sits on the desk with the
+    // other instruments rather than looking like a modern window.
+    monaco.editor.defineTheme('sds1', {
+      base: 'vs',
+      inherit: true,
+      rules: [
+        { token: 'comment', foreground: '6b6455', fontStyle: 'italic' },
+        { token: 'keyword', foreground: '8a4b1e', fontStyle: 'bold' },
+        { token: 'keyword.flow', foreground: '2f6fb5', fontStyle: 'bold' },
+        { token: 'type.identifier', foreground: '2f8a4f', fontStyle: 'bold' },
+        { token: 'variable.predefined', foreground: '1f4e79', fontStyle: 'bold' },
+        { token: 'number', foreground: '7a3b8a' },
+        { token: 'number.hex', foreground: '7a3b8a' },
+        { token: 'number.binary', foreground: '7a3b8a' },
+      ],
+      colors: {
+        'editor.background': '#e9e4d4',
+        'editor.foreground': '#2b2620',
+        'editor.lineHighlightBackground': '#ded8c6',
+        'editorLineNumber.foreground': '#9a927e',
+        'editorLineNumber.activeForeground': '#5a5347',
+        'editorCursor.foreground': '#2b2620',
+        'editor.selectionBackground': '#c9c2ab',
+      },
+    })
+
+    monacoEditor = monaco.editor.create($('editor'), {
+      value: $('source').value,
+      language: 'x266',
+      theme: 'sds1',
+      fontFamily: "'Cascadia Mono', Menlo, 'Courier New', monospace",
+      fontSize: 12,
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      automaticLayout: true,
+      renderLineHighlight: 'line',
+      tabSize: 8,
+    })
+    monacoEditor.addCommand(monaco.KeyCode.F2, assembleAndLoad)
+  }, () => {
+    arrived = true
+    clearTimeout(giveUp)
+    usePlainEditor('offline')
+  })
+}
+
+/* --- assembling ----------------------------------------------------------- */
+
 function assembleAndLoad() {
   const listing = $('listing')
   try {
-    const items = assemble($('source').value)
+    const items = assemble(source.get())
     const origin = Number($('origin').value) || 0
     reset()
     loadMemory(items.flatMap(item => item.bytes), origin)
@@ -1685,7 +2115,7 @@ $('stop').onclick = stop
 $('reset').onclick = reset
 $('assemble').onclick = assembleAndLoad
 $('sample').onclick = () => {
-  $('source').value = SAMPLE
+  source.set(SAMPLE)
   assembleAndLoad()
 }
 $('clear-ram').onclick = () => {
@@ -1695,7 +2125,7 @@ $('clear-ram').onclick = () => {
   refresh()
 }
 $('wire-color').oninput = event => document.documentElement.style.setProperty('--on', event.target.value)
-$('toggle-program').onclick = () => $('program').classList.toggle('closed')
+$('toggle-program').onclick = () => document.querySelector('main').classList.toggle('no-program')
 $('help-text').textContent = HELP
 $('help').onclick = () => $('help-dialog').showModal()
 $('source').addEventListener('keydown', event => {
@@ -1709,6 +2139,7 @@ if (preset) {
   $('source').value = preset
   assembleAndLoad()
 }
+startEditor()
 refresh()
 showStatus('stopped')
 </script>
