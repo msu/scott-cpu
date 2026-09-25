@@ -1000,7 +1000,7 @@ label(C_TMP.x + 27, C_TMP.y + 8, 'tmp', 'wl')
 // bottom right under the class decoder, and its bits rise to feed the columns.
 // ---------------------------------------------------------------------------
 
-const CU = { x: 668, y: 120, w: 1210, h: 866 }
+const CU = { x: 684, y: 120, w: 1194, h: 866 }
 module(CU.x, CU.y, CU.w, CU.h, 'ctrl', 'CONTROL UNIT')
 
 // --- IR -------------------------------------------------------------------------
@@ -1057,7 +1057,7 @@ const CLK_S = { y: 788 }
   })
 }
 wire(net('clk'), `M726 ${CLOCK.y} V306 H${STEPPER.x}`)
-label(730, 648, 'clk', 'wl')
+label(730, 760, 'clk', 'wl')
 label(CLOCK.x + CLOCK.w - 3, CLK_S.y + 3, 'clk s', 'wl end')
 label(CLOCK.x + CLOCK.w - 3, CLK_E.y + 3, 'clk e', 'wl end')
 
@@ -1088,7 +1088,10 @@ boxWithLabel(IDEC.x, IDEC.y, IDEC.w, IDEC.h, '3x8')
 }
 // Bits 1 to 3 rise straight into the decoder.
 ;[1, 2, 3].forEach(i => irBranch(i, IDEC.y + IDEC.h))
-CLASSES.forEach((name, k) => column(name, classNets[k], IDEC.x + 8 + k * 13, IDEC.y))
+CLASSES.forEach((name, k) => {
+  if (name === 'IO') return        // no term uses it, so it has nothing to draw
+  column(name, classNets[k], IDEC.x + 8 + k * 13, IDEC.y)
+})
 steps.forEach((n, k) => column(n.name, n, STEPPER.x + 25 + k * 17, STEPPER.y + STEPPER.h))
 
 // The ALU column leaves bit 0 below the op branches and rises left of the steps.
@@ -1103,7 +1106,7 @@ circuit.add(new Gate('nand', irOut.slice(1, 4), notCmp))
 const cmpGate = gate('nand', 1400, 842, 'u', notCmp, { n: 3, pitch: 5 })
 column('!CMP', notCmp, cmpGate.out[0], cmpGate.out[1])
 const MATCH_X = 1822
-column('MATCH', net('match'), MATCH_X, 720)
+column('MATCH', net('match'), MATCH_X, 832)   // 832 is MATCH.orY, set below
 
 // --- the ALU operation wires ------------------------------------------------------
 // op = ir1..ir3, but only during step 5 of an ALU instruction. The three bits
@@ -1354,8 +1357,8 @@ const REGS = { x: 700, pitch: 269, y: 58, gateY: 190, orY: 150 }
 const LANE = { a: j => 233 + j * 5, b: j => 204 + j * 5, reg: i => 276 + i * 5, turnX: i => 1860 + i * 5 }
 // Decoder B sits higher and to the right, so its lines pass over decoder A
 // and the IR wires into A pass under B's lines.
-const DEC_A = { x: 1752, y: 228, w: 48, h: 23 }
-const DEC_B = { x: 1806, y: 199, w: 48, h: 27 }
+const DEC_A = { x: 1670, y: 228, w: 48, h: 23 }
+const DEC_B = { x: 1726, y: 199, w: 48, h: 27 }
 const decSrc = circuit.word('src reg', 4)
 const decDst = circuit.word('dst reg', 4)
 circuit.add(new Decoder(irOut.slice(4, 6), decSrc))
@@ -1455,7 +1458,7 @@ const mar = register(
   { name: 'MAR', inputs: busNets, set: net('MAR s'), outs: marOut },
   { ...MAR, role: 'ctrl' })
 tap.bottom(mar.shape.cx - TAP_W / 2, MAR.y)
-control(net('MAR s'), `${from('MAR s')} V1078 H${MAR.x + 200} V${MAR.y}`)
+control(net('MAR s'), `${from('MAR s')} V1070 H${MAR.x + 200} V${MAR.y}`)
 label(MAR.x + 204, MAR.y - 3, 's', 'es')
 
 const rowNets = circuit.word('ram row', 16)
@@ -1481,8 +1484,8 @@ label(MEM.rowX + 2, MEM.bottom + 10, '4x16', 'small')
 const IO = { x: 1800, y: MEM.headY, w: 66 }
 tap.bottom(IO.x + 15, IO.y)
 boxWithLabel(IO.x, IO.y, IO.w, MEM.bottom - IO.y, 'DATA')
-control(net('RAM s'), `${from('RAM s')} V1074 H${IO.x + 60} V${IO.y}`)
-control(net('RAM e'), `${from('RAM e')} V1079 H${IO.x + 6} V${IO.y}`)
+control(net('RAM s'), `${from('RAM s')} V1058 H${IO.x + 60} V${IO.y}`)
+control(net('RAM e'), `${from('RAM e')} V1064 H${IO.x + 6} V${IO.y}`)
 label(IO.x + 10, IO.y + 12, 'e', 'es')
 label(IO.x + 50, IO.y + 12, 's', 'es end')
 
