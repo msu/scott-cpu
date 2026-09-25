@@ -305,7 +305,7 @@
 </header>
 
 <main>
-  <svg id="machine" viewBox="-4 -8 1938 1364" preserveAspectRatio="xMidYMid meet"></svg>
+  <svg id="machine" viewBox="-4 -8 1938 1410" preserveAspectRatio="xMidYMid meet"></svg>
   <aside class="unit" id="program">
     <div class="unit-title">Assembler <span class="spacer"></span><span id="editor-mode">x266</span></div>
     <div class="unit-body">
@@ -769,7 +769,7 @@ function module(x, y, w, h, role, name, at = 'bottom-left') {
 
 // --- the bus: a ring of 8 wires. Wire 0 is the outside wire. ---------------
 const STEP = 5
-const BUS = { top: 2, left: 6, bottom: 1029, right: 1924 }
+const BUS = { top: 2, left: 6, bottom: 1049, right: 1924 }
 const busNets = circuit.word('bus')
 const bus = circuit.add(new Bus(busNets))
 
@@ -799,7 +799,7 @@ const TAP_W = 7 * STEP
 // --- TMP and bus 1 ------------------------------------------------------------
 const tmpOut = circuit.word('tmp')
 const aluB = circuit.word('alu b')
-const TMP = { x: 90, y: 72 }
+const TMP = { x: 90, y: 58 }
 const tmp = register(
   { name: 'TMP', inputs: busNets, set: net('TMP s'), outs: tmpOut },
   { ...TMP, role: 'alu' })
@@ -905,7 +905,7 @@ for (const block of blocks) {
   if (carry) {
     // The carry leaves where the shifted-out bit is: the bottom for SHR
     // and ADD, the top for SHL. Either way it passes clear of the enabler.
-    const y = name === 'SHL' ? top + 8 : top + 66
+    const y = name === 'SHL' ? top + 20 : top + 66
     wire(aluNets.carryOut, `M${ALU.blockX + 70} ${y} H${ALU.carryX}`)
     if (name === 'SHL') dot(aluNets.carryOut, ALU.carryX, y)   // SHR and ADD end the trunk
   }
@@ -924,7 +924,7 @@ blocks.forEach((block, k) => {
   const laneX = ALU.laneX + SELECT_LANE[block.name] * 8
   const pinX = ALU.eX + ALU.eW / 2
   const y = decOutY[k]
-  // cy - 36 keeps clear of the SHL carry out, which leaves at cy - 29.
+  // cy - 36 is top + 9, which clears the SHL carry out at top + 20.
   wire(block.select, `M${ALU.decX} ${y} H${laneX} V${block.cy - 36} H${pinX} V${block.cy - 23}`)
 })
 label(ALU.decX + 2, decOutY[7] + 3, 'cmp', 'wl')
@@ -1000,7 +1000,7 @@ label(C_TMP.x + 27, C_TMP.y + 8, 'tmp', 'wl')
 // bottom right under the class decoder, and its bits rise to feed the columns.
 // ---------------------------------------------------------------------------
 
-const CU = { x: 668, y: 146, w: 1210, h: 840 }
+const CU = { x: 668, y: 120, w: 1210, h: 866 }
 module(CU.x, CU.y, CU.w, CU.h, 'ctrl', 'CONTROL UNIT')
 
 // --- IR -------------------------------------------------------------------------
@@ -1350,12 +1350,12 @@ label(outputPins['IP s'][0] + 3, IP.y - 3, 's', 'es')
 // SRC enable, DST enable and DST set, each ANDed with a decoder line.
 // The decoders sit at the top right, on the IR wires; their lines run left.
 // SRC is the first register field of an instruction, DST the second.
-const REGS = { x: 700, pitch: 269, y: 72, gateY: 236, orY: 194 }
-const LANE = { a: j => 279 + j * 5, b: j => 250 + j * 5, reg: i => 322 + i * 5, turnX: i => 1860 + i * 5 }
+const REGS = { x: 700, pitch: 269, y: 58, gateY: 190, orY: 150 }
+const LANE = { a: j => 233 + j * 5, b: j => 204 + j * 5, reg: i => 276 + i * 5, turnX: i => 1860 + i * 5 }
 // Decoder B sits higher and to the right, so its lines pass over decoder A
 // and the IR wires into A pass under B's lines.
-const DEC_A = { x: 1752, y: 274, w: 48, h: 23 }
-const DEC_B = { x: 1806, y: 245, w: 48, h: 27 }
+const DEC_A = { x: 1752, y: 228, w: 48, h: 23 }
+const DEC_B = { x: 1806, y: 199, w: 48, h: 27 }
 const decSrc = circuit.word('src reg', 4)
 const decDst = circuit.word('dst reg', 4)
 circuit.add(new Decoder(irOut.slice(4, 6), decSrc))
@@ -1420,13 +1420,13 @@ for (let n = 0; n < 4; n++) {
   circuit.add(new Gate('or', [rows[0].out, rows[1].out], e))
   const or = gate('or', g.or, REGS.orY, 'u', e)
   const outY = REGS.gateY - GATE_W
-  wire(rows[0].out, `M${g.a} ${outY} V202 H${or.ins[0][0]} V${or.ins[0][1]}`)
-  wire(rows[1].out, `M${g.b} ${outY} V202 H${or.ins[1][0]} V${or.ins[1][1]}`)
+  wire(rows[0].out, `M${g.a} ${outY} V158 H${or.ins[0][0]} V${or.ins[0][1]}`)
+  wire(rows[1].out, `M${g.b} ${outY} V158 H${or.ins[1][0]} V${or.ins[1][1]}`)
   const bottom = REGS.y + REG_H
   control(e, `M${or.out[0]} ${or.out[1]} V${bottom}`)
   control(s, `M${g.s} ${outY} V${bottom}`)
-  label(or.out[0] + 3, bottom + 14, 'e', 'es')
-  label(g.s + 3, bottom + 14, 's', 'es')
+  label(or.out[0] + 3, bottom + 12, 'e', 'es')
+  label(g.s + 3, bottom + 12, 's', 'es')
 }
 
 // The IR wires themselves, from the register up to their highest branch.
@@ -1444,18 +1444,18 @@ for (const [i, y] of irTaps) if (y > irTop[i]) dot(irOut[i], irCol(i), y)
 // address reads like text: left to right, then top to bottom.
 // ---------------------------------------------------------------------------
 
-const MEM = { x: 312, y: 1070, cellW: 92, cellH: 17, headY: 1048, headH: 20, rowX: 280, rowW: 30 }
+const MEM = { x: 312, y: 1110, cellW: 92, cellH: 17, headY: 1088, headH: 20, rowX: 280, rowW: 30 }
 MEM.right = MEM.x + 16 * MEM.cellW
 MEM.bottom = MEM.y + 16 * MEM.cellH
-module(20, 1042, 1862, MEM.bottom - 1042 + 8, 'ram', '')
+module(20, 1082, 1862, MEM.bottom - 1082 + 8, 'ram', '')
 
 const marOut = circuit.word('mar')
-const MAR = { x: 30, y: 1074 }
+const MAR = { x: 30, y: 1114 }
 const mar = register(
   { name: 'MAR', inputs: busNets, set: net('MAR s'), outs: marOut },
   { ...MAR, role: 'ctrl' })
 tap.bottom(mar.shape.cx - TAP_W / 2, MAR.y)
-control(net('MAR s'), `${from('MAR s')} V1038 H${MAR.x + 200} V${MAR.y}`)
+control(net('MAR s'), `${from('MAR s')} V1078 H${MAR.x + 200} V${MAR.y}`)
 label(MAR.x + 204, MAR.y - 3, 's', 'es')
 
 const rowNets = circuit.word('ram row', 16)
@@ -1468,9 +1468,9 @@ const ram = circuit.add(new Ram({
 // MAR to the decoders
 const MAR_BOTTOM = MAR.y + REG_H
 for (let i = 0; i < 4; i++) {
-  wire(marOut[i], `M${mar.shape.cellX(i)} ${MAR_BOTTOM} V${1164 - i * 5} H${MEM.rowX}`)
+  wire(marOut[i], `M${mar.shape.cellX(i)} ${MAR_BOTTOM} V${1204 - i * 5} H${MEM.rowX}`)
   const j = i + 4
-  wire(marOut[j], `M${mar.shape.cellX(j)} ${MAR_BOTTOM} V${1134 - i * 5} H${268 - i * 4} V${MEM.headY + 16 - i * 4} H${MEM.x}`)
+  wire(marOut[j], `M${mar.shape.cellX(j)} ${MAR_BOTTOM} V${1174 - i * 5} H${268 - i * 4} V${MEM.headY + 16 - i * 4} H${MEM.x}`)
 }
 box(MEM.rowX, MEM.y, MEM.rowW, 16 * MEM.cellH)
 box(MEM.x, MEM.headY, 16 * MEM.cellW, MEM.headH)
@@ -1481,8 +1481,8 @@ label(MEM.rowX + 2, MEM.bottom + 10, '4x16', 'small')
 const IO = { x: 1800, y: MEM.headY, w: 66 }
 tap.bottom(IO.x + 15, IO.y)
 boxWithLabel(IO.x, IO.y, IO.w, MEM.bottom - IO.y, 'DATA')
-control(net('RAM s'), `${from('RAM s')} V1034 H${IO.x + 60} V${IO.y}`)
-control(net('RAM e'), `${from('RAM e')} V1039 H${IO.x + 6} V${IO.y}`)
+control(net('RAM s'), `${from('RAM s')} V1074 H${IO.x + 60} V${IO.y}`)
+control(net('RAM e'), `${from('RAM e')} V1079 H${IO.x + 6} V${IO.y}`)
 label(IO.x + 10, IO.y + 12, 'e', 'es')
 label(IO.x + 50, IO.y + 12, 's', 'es end')
 
