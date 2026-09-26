@@ -1000,7 +1000,7 @@ label(C_TMP.x + 27, C_TMP.y + 8, 'tmp', 'wl')
 // bottom right under the class decoder, and its bits rise to feed the columns.
 // ---------------------------------------------------------------------------
 
-const CU = { x: 684, y: 120, w: 1194, h: 866 }
+const CU = { x: 692, y: 120, w: 1186, h: 866 }
 module(CU.x, CU.y, CU.w, CU.h, 'ctrl', 'CONTROL UNIT')
 
 // --- IR -------------------------------------------------------------------------
@@ -1031,7 +1031,7 @@ const sequencer = circuit.add(new Sequencer(
 
 // The clock sits left of the OR plane, so clk e and clk s reach the clock
 // gates with no crossing. The stepper sits above the rows; its steps run down.
-const CLOCK = { x: 696, y: 767, w: 60, h: 45 }
+const CLOCK = { x: 704, y: 767, w: 60, h: 45 }
 const STEPPER = { x: 1380, y: 292, w: 134, h: 40 }
 const CLK_E = { y: 798 }
 const CLK_S = { y: 788 }
@@ -1056,8 +1056,8 @@ const CLK_S = { y: 788 }
     refresh()
   })
 }
-wire(net('clk'), `M726 ${CLOCK.y} V306 H${STEPPER.x}`)
-label(730, 760, 'clk', 'wl')
+wire(net('clk'), `M734 ${CLOCK.y} V306 H${STEPPER.x}`)
+label(738, 760, 'clk', 'wl')
 label(CLOCK.x + CLOCK.w - 3, CLK_S.y + 3, 'clk s', 'wl end')
 label(CLOCK.x + CLOCK.w - 3, CLK_E.y + 3, 'clk e', 'wl end')
 
@@ -1065,7 +1065,8 @@ label(CLOCK.x + CLOCK.w - 3, CLK_E.y + 3, 'clk e', 'wl end')
 // name -> { net, x, feed }. A column runs from its feed, above or below the
 // rows, to the farthest row that uses it.
 const columns = new Map()
-const column = (name, n, x, feed) => columns.set(name, { net: n, x, feed, lo: Infinity, hi: -Infinity })
+const column = (name, n, x, feed, fromTop = false) =>
+  columns.set(name, { net: n, x, feed, fromTop, lo: Infinity, hi: -Infinity })
 const useColumn = (col, y) => {
   col.lo = Math.min(col.lo, y)
   col.hi = Math.max(col.hi, y)
@@ -1082,7 +1083,7 @@ boxWithLabel(IDEC.x, IDEC.y, IDEC.w, IDEC.h, '3x8')
 {
   // The enable is a NOT on bit 0, above the REG lanes. Its output enters the
   // decoder from the left side.
-  const pins = gate('not', irX(0), 728, 'u', notIr0)
+  const pins = gate('not', irX(0), 880, 'u', notIr0)
   irBranch(0, pins.ins[0][1])
   wire(notIr0, `M${pins.out[0]} ${pins.out[1]} V${IDEC.y + 8} H${IDEC.x}`)
 }
@@ -1092,7 +1093,7 @@ CLASSES.forEach((name, k) => {
   if (name === 'IO') return        // no term uses it, so it has nothing to draw
   column(name, classNets[k], IDEC.x + 8 + k * 13, IDEC.y)
 })
-steps.forEach((n, k) => column(n.name, n, STEPPER.x + 25 + k * 17, STEPPER.y + STEPPER.h))
+steps.forEach((n, k) => column(n.name, n, STEPPER.x + 25 + k * 17, STEPPER.y + STEPPER.h, true))
 
 // The ALU column leaves bit 0 below the op branches and rises left of the steps.
 const ALU_BRANCH_Y = 912
@@ -1112,12 +1113,12 @@ column('MATCH', net('match'), MATCH_X, 832)   // 832 is MATCH.orY, set below
 // op = ir1..ir3, but only during step 5 of an ALU instruction. The three bits
 // run along the bottom of the control unit to the gates beside the ALU.
 const aluEnable = net('ALU en')
-const ALU_EN_X = 665
+const ALU_EN_X = 660
 const opGateY = k => 370 + k * 30
 const OP_BRANCH_Y = k => 908 - k * 4
 ;[1, 2, 3].forEach((i, k) => {
   const y = opGateY(k)
-  const laneX = 678 + k * 5
+  const laneX = 666 + k * 5
   const pins = gate('and', 658, y, 'l', aluNets.op[k])
   circuit.add(new Gate('and', [irOut[i], aluEnable], aluNets.op[k]))
   irBranch(i, OP_BRANCH_Y(k), `H${laneX} V${pins.ins[1][1]} H${pins.ins[1][0]}`)
@@ -1174,7 +1175,7 @@ const OUTPUTS = [
 ]
 
 // --- the AND plane: one row for each term, gates pointing left -----------------------
-const PLANE = { rowY: 326, rowPitch: 20, gateX: 1300, orX: 760, orY: 762, andY: 802, outY: 824 }
+const PLANE = { rowY: 350, rowPitch: 20, gateX: 1300, orX: 776, orY: 762, andY: 802, outY: 824 }
 const TERM_X = PLANE.gateX - GATE_W     // where a term wire starts
 const termNets = {}
 const termRows = {}
@@ -1268,7 +1269,7 @@ wire(net('clk s'), `M${CLOCK.x + CLOCK.w} ${CLK_S.y} H${CLK_S.reach}`)
 // from the ALU side, above the class decoder.
 const MATCH = { gateY: 767, orX: 1794, orY: 832 }
 const flagLaneY = i => 737 + i * 5
-const flagJogX = i => 644 + i * 5
+const flagJogX = i => 636 + i * 5
 const matchOr = gate('or', MATCH.orX, MATCH.orY, 'r', net('match'), { n: 4, pitch: 5 })
 const matchTerms = flagOut.map((flag, i) => {
   const out = net(`match ${'CAEZ'[i]}`)
@@ -1290,13 +1291,15 @@ dot(flagOut[0], flagJogX(0), flagY(0))
 
 // The columns themselves, now that each one knows how far up it runs.
 for (const [name, col] of columns) {
-  const fromTop = col.feed < PLANE.rowY
-  // A column no term uses (IO) is a short stub.
-  const far = col.lo === Infinity ? col.feed - 20 : fromTop ? col.hi : col.lo
-  const d = `M${col.x} ${col.feed} V${far}`
+  if (col.lo === Infinity) continue          // nothing uses it, so there is nothing to draw
+  // The wire runs from the end that feeds it to the furthest row that reads
+  // it, so it reaches every tap on the way.
+  const top = Math.min(col.feed, col.lo)
+  const bottom = Math.max(col.feed, col.hi)
+  const d = `M${col.x} ${top} V${bottom}`
   if (name.startsWith('s')) control(col.net, d, 'step')
   else wire(col.net, d)
-  if (fromTop) {
+  if (col.fromTop) {
     // A step number sits beside its wire where it leaves the stepper.
     label(col.x + 2, col.feed + 10, name.replace(/^s/, ''), 'wl')
     continue
