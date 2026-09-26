@@ -281,7 +281,7 @@
 <header class="panel console">
   <div class="brand">
     <b>SCOTT DATA SYSTEMS 1</b>
-    <span>X266 &middot; 8 BIT &middot; 256 WORDS</span>
+    <span>8 BIT &middot; 256 WORDS</span>
     <span class="credit">Computer design &copy; John Clark Scott 2009,
       <a href="https://buthowdoitknow.com/">buthowdoitknow.com</a></span>
   </div>
@@ -307,7 +307,7 @@
 <main>
   <svg id="machine" viewBox="-4 -8 1938 1410" preserveAspectRatio="xMidYMid meet"></svg>
   <aside class="unit" id="program">
-    <div class="unit-title">Assembler <span class="spacer"></span><span id="editor-mode">x266</span></div>
+    <div class="unit-title">Assembler <span class="spacer"></span><span id="editor-mode"></span></div>
     <div class="unit-body">
       <div id="editor"></div>
       <textarea id="source" spellcheck="false" hidden></textarea>
@@ -875,7 +875,7 @@ busNets.forEach((n, i) => dot(n, BUS.left + i * STEP, A_TAP_Y + i * STEP))
 ribbon(aluB, i => `M${B_X + i * STEP} 146 V${bTapY(lastBlock, i)}`)
 
 // The output trunk runs down to ACC.
-const ACC = { x: ALU.outX + TAP_W / 2 - CELL * 4, y: 930 }
+const ACC = { x: ALU.outX + TAP_W / 2 - CELL * 4, y: 950 }
 ribbon(aluNets.out, i => `M${ALU.outX + i * STEP} ${outY(blocks[0], i)} V${ACC.y}`)
 
 for (const block of blocks) {
@@ -905,7 +905,7 @@ for (const block of blocks) {
   if (carry) {
     // The carry leaves where the shifted-out bit is: the bottom for SHR
     // and ADD, the top for SHL. Either way it passes clear of the enabler.
-    const y = name === 'SHL' ? top + 20 : top + 66
+    const y = name === 'SHL' ? top + 15 : top + 66
     wire(aluNets.carryOut, `M${ALU.blockX + 70} ${y} H${ALU.carryX}`)
     if (name === 'SHL') dot(aluNets.carryOut, ALU.carryX, y)   // SHR and ADD end the trunk
   }
@@ -955,7 +955,7 @@ wire(aluNets.zero, `M${Z_BOX.x + Z_BOX.w} 845 H580 V${flagY(3)} H${FLAGS.x}`)
 const CARRY_LANE = 235
 const CARRY_Y = 900   // clear of the ACC name tab below
 // The carry enters SHR at the top: it becomes bit 0, the top wire.
-wire(aluNets.carryIn, `M596 ${CARRY_Y} H${CARRY_LANE} V${shr.top + 12} H${ALU.blockX + 8}`)
+wire(aluNets.carryIn, `M566 ${CARRY_Y} H${CARRY_LANE} V${shr.top + 12} H${ALU.blockX + 8}`)
 for (const block of blocks.filter(b => b.name === 'SHL' || b.name === 'ADD')) {
   // SHL takes the carry low on its left edge, but clear of the carry wire
   // that runs to FLAGS at the same height.
@@ -979,7 +979,7 @@ const flags = register(
 
 // The carry flag feeds the ALU, and the ALU sets the carry flag. The latch
 // keeps the old carry steady while FLAGS takes the new one.
-const C_TMP = { x: 626, y: 898, w: 24, h: 24 }
+const C_TMP = { x: 596, y: 898, w: 24, h: 24 }
 const carryLatch = circuit.add(new Register(
   { name: 'C TMP', inputs: [flagOut[0]], set: net('TMP s'), outs: [net('c tmp')] }))
 registers.push(carryLatch)
@@ -1310,10 +1310,10 @@ for (const [name, col] of columns) {
 
 // The carry latch feeds the ALU only while the ALU is in use.
 {
-  const pins = gate('and', 616, CARRY_Y, 'l', aluNets.carryIn)
+  const pins = gate('and', 586, CARRY_Y, 'l', aluNets.carryIn)
   circuit.add(new Gate('and', [net('c tmp'), aluEnable], aluNets.carryIn))
   wire(net('c tmp'), `M${C_TMP.x} ${pins.ins[1][1]} H${pins.ins[1][0]}`)
-  wire(aluEnable, `M${ALU_EN_X} ${CARRY_Y + 15} H620 V${pins.ins[0][1]} H${pins.ins[0][0]}`)
+  wire(aluEnable, `M${ALU_EN_X} ${CARRY_Y + 35} H${pins.ins[0][0]} V${pins.ins[0][1]}`)
 }
 
 // --- control wires that leave at the bottom -------------------------------------------
@@ -1321,14 +1321,14 @@ const lane = i => PLANE.outY + 40 + i * 4
 const from = name => `M${outputPins[name].join(' ')}`
 
 control(aluEnable, `${from('ALU en')} V${lane(0)} H${ALU_EN_X}`)
-wire(aluEnable, `M${ALU_EN_X} ${opGateY(0) + 3} V${CARRY_Y + 15}`)
+wire(aluEnable, `M${ALU_EN_X} ${opGateY(0) + 3} V${CARRY_Y + 35}`)
 dot(aluEnable, ALU_EN_X, lane(0))
 
 control(net('bus 1'), `${from('bus 1')} V${lane(1)} H560 V135 H${B_X + TAP_W + 10}`)
 
 control(net('TMP s'), `${from('TMP s')} V${lane(2)} H570 V${TMP.y + 20} H${TMP.x + CELL * 8}`)
 label(TMP.x + CELL * 8 + 4, TMP.y + 17, 's', 'es')
-wire(net('TMP s'), `M570 ${lane(2)} V${C_TMP.y + C_TMP.h + 10} H${C_TMP.x + 12} V${C_TMP.y + C_TMP.h}`)
+wire(net('TMP s'), `M570 ${lane(2)} V${C_TMP.y + C_TMP.h + 4} H${C_TMP.x + 12} V${C_TMP.y + C_TMP.h}`)
 dot(net('TMP s'), 570, lane(2))
 
 control(net('ACC s'), `${from('ACC s')} V${lane(3)} H656 V${ACC.y + 12} H${ACC.x + CELL * 8}`)
@@ -1555,15 +1555,14 @@ function loadMemory(bytes, origin = 0) {
 loadMemory([])
 
 // ---------------------------------------------------------------------------
-// 6. The x266 assembler
+// 6. The assembler
 //
-// x266 is x366 assembly for this machine. Every mnemonic is one x366 mnemonic
-// that one SDS-1 instruction performs, so the source reads like the x366 the
-// course teaches later and the bytes run on the hardware below.
+// Every mnemonic here is one instruction the machine performs, so the source
+// reads the way the course teaches assembly later and the bytes run on the
+// hardware drawn below.
 //
-// This mirrors X266Assembler.java, Instruction.java and Instructions.java, so
-// a program assembles to the same bytes in either tool. It adds line numbers
-// to the errors, which a browser can afford and a compiler cannot.
+// It mirrors the course assembler, so a program makes the same bytes in either
+// tool. It adds line numbers to its errors, which a browser can afford.
 //
 // Assembly runs in three phases, and the order is why an assembler reads its
 // source twice:
@@ -1594,9 +1593,9 @@ const JUMPS = { JE: 0b0010, JEQ: 0b0010, JG: 0b0100, JGE: 0b0110 }
 
 const MEMORY_SIZE = 256
 
-// An x366 instruction with no single SDS-1 instruction behind it. Naming them
+// An instruction with no single machine instruction behind it. Naming them
 // gives a better error than "no instruction".
-const NOT_IN_X266 = {
+const NOT_SUPPORTED = {
   SUB: 'the machine has no subtractor',
   INC: 'the machine has no increment. Add a register that holds 1',
   DEC: 'the machine has no decrement',
@@ -1607,7 +1606,7 @@ const NOT_IN_X266 = {
   JZ: 'the machine can jump on equal, larger, or both',
   JC: 'the machine can jump on equal, larger, or both',
   LOOP: 'the machine has no loop instruction. Compare and jump',
-  CLF: 'x266 clears no flags. A conditional jump follows its CMP directly',
+  CLF: 'there is nothing to clear. A conditional jump follows its CMP directly',
 }
 
 class AsmError extends Error {
@@ -1625,8 +1624,8 @@ function stripComment(text) {
 }
 
 /**
- * Splits a line into the mnemonic and its operands. Commas are optional, as
- * x366 allows, and a bracket holds its contents together.
+ * Splits a line into the mnemonic and its operands. Commas are optional, and
+ * a bracket holds its contents together.
  */
 function splitParts(text) {
   const parts = []
@@ -1683,11 +1682,11 @@ function bracketRegister(item, operand) {
   const inner = operand.slice(1, -1).trim()
   if (inner.includes('+') || inner.includes('-')) {
     throw new AsmError(item.line,
-      `${operand} is not in x266. The machine addresses memory through a register only`)
+      `${operand} is not supported. The machine addresses memory through a register only`)
   }
   if (!(inner.toUpperCase() in REGISTERS)) {
     throw new AsmError(item.line,
-      `${operand} is not in x266. The machine has no absolute address. Load it into a register first`)
+      `${operand} is not supported. The machine has no absolute address. Load it into a register first`)
   }
   return reg(item, inner)
 }
@@ -1733,7 +1732,7 @@ function encodeMove(item, labels) {
   const srcMemory = src.startsWith('[')
 
   if (dstMemory && srcMemory) {
-    throw new AsmError(item.line, `memory to memory is not in x266: MOV ${dst}, ${src}`)
+    throw new AsmError(item.line, `memory to memory is not supported: MOV ${dst}, ${src}`)
   }
   if (srcMemory) {                                    // MOV A, [B]
     return [(OP.LD << 4) | (bracketRegister(item, src) << 2) | reg(item, dst)]
@@ -1743,7 +1742,7 @@ function encodeMove(item, labels) {
   }
   if (src.toUpperCase() in REGISTERS) {
     throw new AsmError(item.line,
-      `MOV ${dst}, ${src} is not in x266. The machine has no register to register move`)
+      `MOV ${dst}, ${src} is not supported. The machine has no register to register move`)
   }
   return [(OP.DATA << 4) | reg(item, dst), value(item, src, labels)]   // MOV A, 10
 }
@@ -1772,14 +1771,14 @@ function encode(item, labels) {
       + `so PRINT and READ have nothing to reach. Use the register and memory panels instead`)
   }
 
-  // Two operands, so the x366 destination goes in the second field.
+  // Two operands, so the destination goes in the second field.
   if (ALU_TWO.includes(op)) return [(OP[op] << 4) | (reg(item, a2) << 2) | reg(item, a1)]
-  // CMP writes no register, so its operands keep the x366 order.
+  // CMP writes no register, so its operands keep the order written.
   if (op === 'CMP') return [(OP.CMP << 4) | (reg(item, a1) << 2) | reg(item, a2)]
   // One operand, so the register is both inputs of the ALU.
   if (ALU_ONE.includes(op)) return [(OP[op] << 4) | (reg(item, a1) << 2) | reg(item, a1)]
 
-  if (op in NOT_IN_X266) throw new AsmError(item.line, `${op} is not in x266: ${NOT_IN_X266[op]}`)
+  if (op in NOT_SUPPORTED) throw new AsmError(item.line, `${op} is not supported: ${NOT_SUPPORTED[op]}`)
   throw new AsmError(item.line, `there is no instruction named ${op}. Open help for the list`)
 }
 
@@ -1836,38 +1835,46 @@ const PROGRAMS = {
   sample: SAMPLE,
 }
 
-const HELP = `x266 is x366 assembly for the SDS-1. Every instruction here is one
-x366 mnemonic that one machine instruction performs.
+const HELP = `A guide to writing programs for this machine.
 
-The registers are A, B, C and D. Each one holds a byte.
-A number is decimal, 0x hex or 0b binary. "name:" marks a label.
-A comment starts with ";". Commas are optional.
+Registers    A, B, C and D. Each one holds a byte.
+Numbers      42 is decimal, 0x2A is hex, 0b101010 is binary. All the same.
+Labels       Write "name:" in front of a line, then use the name as an address.
+Comments     Everything after a ";" is ignored.
+Operands     A comma between two operands is optional.
 
-  MOV A, 10       load a number into a register
-  MOV A, [B]      read the memory that B points at
-  MOV [B], A      write A into the memory that B points at
-  ADD A, B        A = A + B, and the same for AND, OR, XOR
-  NOT A           A = NOT A, and the same for SHL and SHR, one place
-  CMP A, B        set the flags only
-  JMP label       jump
-  JE label        jump when the last CMP was equal
-  JG label        jump when the first operand was larger, unsigned
-  JGE label       either of the two above
-  HLT             stop, by jumping to its own address
-  DB 1, 2, 3      data bytes
+Moving data
+  MOV A, 10       put a number into a register
+  MOV A, [B]      read the byte at the address held in B
+  MOV [B], A      write A to the address held in B
 
-CMP sets the flags and a jump reads them, so a conditional jump must follow
-its CMP directly.
+Arithmetic and logic
+  ADD A, B        A = A + B
+  AND A, B        A = A AND B
+  OR  A, B        A = A OR B
+  XOR A, B        A = A XOR B
+  NOT A           A = NOT A
+  SHL A           shift A one place to the left
+  SHR A           shift A one place to the right
 
-These are not in x266, because no single machine instruction performs them:
-SUB, INC, DEC, LEA, JNE, JL, JLE, LOOP, MOV A, B and MOV A, [0x20].
-SYSCALL is not here either, because this drawing has no device attached.
+Comparing and jumping
+  CMP A, B        compare the two, and set the flags
+  JE  label       jump if they were equal
+  JG  label       jump if the first was larger
+  JGE label       jump if it was larger or equal
+  JMP label       jump every time
+
+Data and stopping
+  DB 1, 2, 3      place these bytes in memory
+  HLT             stop the machine
+
+A jump reads the flags that CMP sets, so put the jump directly after its CMP.
 
 With the clock stopped:
   click a register bit or a memory bit to flip it
   click a wire to hold it on, and click it again to let it go
-  click the clock for its next phase, and the stepper for its next step`
-
+  click the clock for its next phase, and the stepper for its next step
+`
 // ---------------------------------------------------------------------------
 // 7. The console: the keys, the run loop and the assembler panel
 // ---------------------------------------------------------------------------
@@ -2007,7 +2014,7 @@ let loadedSource = null
 
 function showEditorState() {
   const dirty = source.get().trim() !== (loadedSource ?? '').trim()
-  const parts = ['x266']
+  const parts = []
   if (plainReason) parts.push(`plain text (${plainReason})`)
   parts.push(dirty ? 'NOT LOADED' : 'loaded')
   $('editor-mode').textContent = parts.join(' | ')
@@ -2024,8 +2031,8 @@ function startEditor() {
     arrived = true
     clearTimeout(giveUp)
 
-    monaco.languages.register({ id: 'x266' })
-    monaco.languages.setMonarchTokensProvider('x266', {
+    monaco.languages.register({ id: 'asm' })
+    monaco.languages.setMonarchTokensProvider('asm', {
       ignoreCase: true,
       tokenizer: {
         root: [
@@ -2045,7 +2052,7 @@ function startEditor() {
 
     const MNEMONICS = ['MOV', 'ADD', 'AND', 'OR', 'XOR', 'NOT', 'SHL', 'SHR',
       'CMP', 'JMP', 'JE', 'JG', 'JGE', 'HLT', 'DB']
-    monaco.languages.registerCompletionItemProvider('x266', {
+    monaco.languages.registerCompletionItemProvider('asm', {
       provideCompletionItems: (model, position) => {
         const word = model.getWordUntilPosition(position)
         const range = {
@@ -2108,7 +2115,7 @@ function startEditor() {
 
     monacoEditor = monaco.editor.create($('editor'), {
       value: $('source').value,
-      language: 'x266',
+      language: 'asm',
       theme: 'sds1',
       fontFamily: "'Cascadia Mono', Menlo, 'Courier New', monospace",
       fontSize: 12,
@@ -2200,6 +2207,29 @@ startEditor()
 showEditorState()
 refresh()
 showStatus('stopped')
+if (params.has('test')) {
+  const out = []
+  const rv = n => registers.find(r => r.name === n).value
+  const run = (src, n) => { $('source').value = src; assembleAndLoad(); for (let i=0;i<n;i++) advance(atInstructionStart) }
+  run(PROGRAMS.and, 3); out.push(rv('A')===72 ? 'ok AND' : `FAIL AND ${rv('A')}`)
+  run(SAMPLE, 60);      out.push(rv('A')===25 ? 'ok 5x5' : `FAIL 5x5 ${rv('A')}`)
+  run('MOV A, 10\nHLT', 1); out.push(rv('IP')===2 ? 'ok IP' : `FAIL IP`)
+  run('MOV A, 0x2A\nMOV B, 0x10\nMOV [B], A\nMOV C, [B]\nHLT', 4); out.push(rv('C')===0x2A ? 'ok ld/st' : 'FAIL ld/st')
+  run('MOV A, 5\nMOV B, 5\nCMP A, B\nJE d\nMOV C, 255\nd: HLT', 6); out.push(rv('C')===0 ? 'ok JE' : 'FAIL JE')
+  run('MOV A, 6\nMOV B, 5\nCMP A, B\nJG b\nMOV C, 1\nb: HLT', 6); out.push(rv('C')===0 ? 'ok JG' : 'FAIL JG')
+  run('MOV A, 0b10000001\nSHL A\nHLT', 2); out.push(rv('A')===2 ? 'ok SHL' : 'FAIL SHL')
+  run('MOV A, 0b10000001\nSHR A\nHLT', 2); out.push(rv('A')===64 ? 'ok SHR' : 'FAIL SHR')
+  run('MOV A, 200\nMOV B, 100\nADD A, B\nHLT', 3); out.push(rv('A')===44 ? 'ok ADD' : 'FAIL ADD')
+  // the help must not promise anything the assembler rejects
+  for (const m of HELP.matchAll(/^ {2}([A-Z]+ [^\n]*?)  +/gm)) {
+    const line = m[1].trim()
+    try { assemble(line.includes('label') ? `${line.replace('label','t')}\nt: HLT` : line) }
+    catch (e) { out.push(`FAIL help "${line}": ${e.message}`) }
+  }
+  const shown = document.body.innerText + ' ' + HELP + ' ' + [...document.querySelectorAll('svg text')].map(t=>t.textContent).join(' ')
+  out.push(/266|366/.test(shown) ? 'FAIL branding: ' + shown.match(/\S*\d66\S*/)[0] : 'ok no branding')
+  document.title = out.filter(l=>l.startsWith('FAIL')).join(' | ') || `ALL OK (${out.length})`
+}
 </script>
 </body>
 </html>

@@ -5,7 +5,7 @@ It runs at <https://scott-cpu.cs.montana.edu/>.
 
 The page builds the circuit and the drawing from the same description, so every wire
 on the screen is a net in the machine. The registers are named A, B, C and D, the way
-an 8-bit machine names them, and it assembles x266.
+an 8-bit machine names them.
 
 ## Use
 
@@ -34,11 +34,7 @@ With the clock stopped:
 
 Query parameters: `?prog=and` or `?prog=sample` loads a program. `?speed=20` sets the clock rate.
 
-## x266
-
-x266 is x366 assembly for this machine. Every mnemonic is one x366 mnemonic that one
-SDS-1 instruction performs, so the source reads like the x366 the course teaches later
-and the bytes run on the hardware below.
+## The assembly language
 
 ```
 MOV A, 10       load a number          ADD A, B        A = A + B
@@ -48,17 +44,15 @@ JMP label       jump                   JE / JG / JGE   jump on the flags
 HLT             stop                   DB 1, 2, 3      data bytes
 ```
 
-`CMP` sets the flags and a jump reads them, so a conditional jump must follow its `CMP`
-directly. `JG` and `JGE` compare unsigned, because the comparator reports unsigned
-"larger".
+The registers are A, B, C and D, and each holds a byte. A number is decimal, `0x`
+hex or `0b` binary. A label is written `name:` and then used as an address. A
+comment starts with `;`, and a comma between operands is optional.
 
-These are not in x266, because no single machine instruction performs them: `SUB`,
-`INC`, `DEC`, `LEA`, `JNE`, `JL`, `JLE`, `LOOP`, `MOV A, B` and `MOV A, [0x20]`.
-`SYSCALL` is rejected too: the instruction set has an I/O opcode, but this drawing has
-no device attached to it.
+`CMP` sets the flags and a jump reads them, so a conditional jump must follow its
+`CMP` directly. `JG` and `JGE` compare unsigned, because the comparator reports
+unsigned "larger".
 
-This matches `X266Assembler.java` in the course repository, so a program assembles to
-the same bytes in either tool. Press `HELP` in the page for the same list.
+Press `HELP` in the page for the same guide.
 
 ## Credits
 
