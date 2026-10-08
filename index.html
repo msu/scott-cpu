@@ -122,6 +122,11 @@
     background: #eef3f6; color: #22303b;
     border: 1px solid #22303b; border-radius: 3px; padding: 2px 4px;
   }
+  .field select {
+    font-family: inherit; font-size: 11px;
+    background: #eef3f6; color: #22303b;
+    border: 1px solid #22303b; border-radius: 3px; padding: 2px 4px;
+  }
   .field input[type=color] {
     width: 30px; height: 24px; padding: 0; cursor: pointer;
     background: #eef3f6; border: 1px solid #22303b; border-radius: 3px;
@@ -208,7 +213,7 @@
   .unit-keys { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
   .unit-keys .key { min-width: 0; height: 28px; font-size: 9px; }
   .unit-keys .field { color: #5a5347; }
-  .unit-keys .field input { border-color: var(--unit-edge); background: #f2eee2; }
+  .unit-keys .field input, .unit-keys .field select { border-color: var(--unit-edge); background: #f2eee2; }
 
   dialog {
     max-width: 640px;
@@ -217,6 +222,32 @@
     box-shadow: 0 8px 28px rgba(0,0,0,0.5);
   }
   dialog pre { font-family: inherit; font-size: 12px; line-height: 17px; white-space: pre-wrap; }
+
+  /* The detail: the gates inside one box, floating over the desk. It is not
+     modal, so the machine keeps running and stays clickable under it. */
+  #detail {
+    position: fixed; left: auto; right: 14px; top: 50%; transform: translateY(-50%);
+    margin: 0; padding: 0; width: 460px; max-width: 90vw;
+    background: var(--unit); z-index: 10;
+  }
+  #detail .unit-title { cursor: move; user-select: none; }
+  #detail .unit-title .key { height: 22px; min-width: 0; font-size: 8px; padding: 1px 7px; }
+  #detail svg { display: block; width: 100%; height: auto; background: var(--paper); }
+
+  /* --- a narrow screen ----------------------------------------------------
+     The drawing needs a wide screen. On a phone the page stacks: the notice,
+     the console, the machine at its full width, then the editor. */
+  #narrow { display: none; margin: 0; padding: 8px 12px; font-size: 11px; line-height: 1.4; }
+  @media (max-width: 900px) {
+    body { display: block; padding: 6px; }
+    body > * { margin-bottom: 8px; }
+    #narrow { display: block; }
+    .console { padding: 5px 12px 6px; }
+    main { display: block; }
+    #machine { height: auto; aspect-ratio: 1938 / 1410; margin-bottom: 8px; }
+    #program { height: 70vh; }
+    #detail { width: calc(100vw - 28px) !important; right: 14px; }
+  }
 
   /* --- the drawing ------------------------------------------------------- */
   svg text { font-family: Arial, Helvetica, sans-serif; fill: var(--ink); }
@@ -234,6 +265,8 @@
   .es { font-size: 14px; font-weight: 700; }    /* an enable or set entry */
   .clickable { cursor: pointer; }
   .clickable:hover { stroke: rgba(255, 138, 0, 0.9); }
+  .lens { fill: #fbfdff; stroke: #4a555d; stroke-width: 1.6; cursor: pointer; }
+  .lens:hover { stroke: rgba(255, 138, 0, 0.9); }
   .mid { text-anchor: middle; dominant-baseline: central; }
   .end { text-anchor: end; }
   .none { pointer-events: none; }
@@ -304,6 +337,8 @@
   </div>
 </header>
 
+<p id="narrow" class="panel">This page is made for a wide screen. The machine is below, and pinch to zoom reads it. The editor is under it.</p>
+
 <main>
   <svg id="machine" viewBox="-4 -8 1938 1410" preserveAspectRatio="xMidYMid meet"></svg>
   <aside class="unit" id="program">
@@ -314,7 +349,7 @@
       <div class="unit-keys">
         <button class="key" id="assemble">ASSEMBLE &amp; LOAD</button>
         <label class="field" for="origin">at <input id="origin" type="number" min="0" max="255" value="0"></label>
-        <button class="key" id="sample">SAMPLE</button>
+        <label class="field" for="programs">sample <select id="programs"><option value="">...</option></select></label>
         <button class="key" id="clear-ram">CLEAR MEM</button>
       </div>
       <pre id="listing"></pre>
@@ -325,6 +360,12 @@
 <dialog id="help-dialog">
   <pre id="help-text"></pre>
   <form method="dialog"><button class="key">CLOSE</button></form>
+</dialog>
+
+<dialog id="detail">
+  <div class="unit-title"><span id="detail-title"></span><span class="spacer"></span>
+    <form method="dialog"><button class="key">CLOSE</button></form></div>
+  <svg id="detail-svg" xmlns="http://www.w3.org/2000/svg"></svg>
 </dialog>
 
 <!-- Monaco loads from a pinned CDN copy, the same one cpu/mtmc-16 uses, so the
@@ -421,17 +462,6 @@ class Gate {
   }
 }
 
-class Decoder {
-  constructor(inputs, outs, enable = null) {
-    Object.assign(this, { inputs, outs, enable })
-  }
-  update(c) {
-    const active = !this.enable || this.enable.on
-    const selected = read(this.inputs)
-    this.outs.forEach((net, i) => c.drive(net, active && i === selected))
-  }
-}
-
 // A transparent latch. With "outs" the value is always visible on those nets.
 // With "enable" the value goes to a bus only while enable is on.
 class Register {
@@ -479,8 +509,8 @@ const ALU_OPS = ['ADD', 'SHR', 'SHL', 'NOT', 'AND', 'OR', 'XOR']
 
 class Alu {
   constructor(nets) {
-    // nets: a, b, op, carryIn, select[8], blockOut{name: word}, out,
-    //       carryOut, larger, equal, zero
+    // nets: a, b, op, carryIn, blockOut{name: word}, out, carryOut, larger,
+    //       equal, zero. The select lines come from a decoder on op.
     Object.assign(this, nets)
   }
   update(c) {
@@ -498,7 +528,6 @@ class Alu {
       XOR: [a ^ b, false],
     }
     const selected = read(this.op)
-    this.select.forEach((net, i) => c.drive(net, i === selected))
     let out = 0
     let carry = false
     ALU_OPS.forEach((name, i) => {
@@ -549,12 +578,17 @@ class Ram {
 //   tick 4: clk e off; the stepper still shows the old step
 // After a reset the stepper already shows step 1, so the first rising edge
 // does not move it.
+//
+// The stepper in the book is a chain of latches. Each clock cycle turns on
+// one more, so the chain holds a thermometer code, and step n is "stage n on
+// and stage n + 1 off". The stage nets here follow the step counter, and
+// gates make the steps from them, so the detail drawing shows real nets.
 class Sequencer {
   phase = 0
   step = 0
   started = false
-  constructor({ clk, clkE, clkS, steps }) {
-    Object.assign(this, { clk, clkE, clkS, steps })
+  constructor({ clk, clkE, clkS, stages }) {
+    Object.assign(this, { clk, clkE, clkS, stages })
   }
   tick() {
     this.phase = (this.phase + 1) % 4
@@ -567,7 +601,7 @@ class Sequencer {
     c.drive(this.clk, this.phase === 1 || this.phase === 2)
     c.drive(this.clkE, this.phase !== 0)
     c.drive(this.clkS, this.phase === 2)
-    this.steps.forEach((net, i) => c.drive(net, i === this.step))
+    this.stages.forEach((net, i) => c.drive(net, i <= this.step))
   }
   reset() {
     this.phase = 0
@@ -595,14 +629,32 @@ function el(tag, attrs = {}, parent = root, text = null) {
 }
 
 // Later layers draw over earlier ones. Wires end under the shapes they feed.
-const layers = Object.fromEntries(
-  ['modules', 'wires', 'shapes', 'text', 'hits'].map(name => [name, el('g', { class: name })]))
+const makeLayers = svg => Object.fromEntries(
+  ['modules', 'wires', 'shapes', 'text', 'hits'].map(name => [name, el('g', { class: name }, svg)]))
+let layers = makeLayers(root)
 
 const views = []   // functions that redraw state that is not a net
 
+// The nodes bound while a detail draws, so closing it can unbind them.
+let bound = null
+
 function bind(node, net) {
   net.els.push(node)
+  bound?.push([net, node])
+  if (net.on) node.classList.add('on')
   return node
+}
+
+// Runs draw() with the helpers below aimed at another SVG, and returns the
+// bindings it made.
+function drawInto(svg, draw) {
+  const main = layers
+  layers = makeLayers(svg)
+  bound = []
+  try { draw() } finally { layers = main }
+  const made = bound
+  bound = null
+  return made
 }
 
 const wire = (net, d) => bind(el('path', { class: 'wire', d }, layers.wires), net)
@@ -677,7 +729,7 @@ function render() {
     for (const node of net.els) {
       node.classList.toggle('on', net.on)
       // A wire that is on goes over the wires that are off.
-      if (net.on && node.parentNode === layers.wires) layers.wires.appendChild(node)
+      if (net.on && node.parentNode.classList.contains('wires')) node.parentNode.appendChild(node)
     }
   }
   for (const [net, nodes] of holds) {
@@ -765,6 +817,98 @@ function module(x, y, w, h, role, name, at = 'bottom-left') {
     ? { x: x + 10, y: y + 24, class: 'module-name' }
     : { x: x + 10, y: y + h - 10, class: 'module-name' }
   el('text', attrs, layers.modules, name)
+}
+
+// A decoder: one NOT per input, then one AND per output. Output i is the AND
+// of the inputs that are 1 in i and the inverted inputs that are 0 in i.
+function decoder(inputs, outs, enable = null) {
+  const inverted = inputs.map(input => {
+    const n = net(`not ${input.name}`)
+    circuit.add(new Gate('not', [input], n))
+    return n
+  })
+  outs.forEach((out, i) => {
+    const bits = inputs.map((input, k) => ((i >> (inputs.length - 1 - k)) & 1 ? input : inverted[k]))
+    circuit.add(new Gate('and', enable ? [enable, ...bits] : bits, out))
+  })
+  return { inputs, inverted, outs, enable }
+}
+
+// --- details: the gates inside a box, drawn on demand ---------------------------
+// name -> { title, w, h, draw }. draw() uses the helpers above, so the detail
+// lights up with the machine.
+const DETAILS = {}
+
+// A click on the box opens its detail.
+function zoomBox(rect, name) {
+  rect.classList.add('clickable')
+  el('title', {}, rect, 'click: show the gates inside')
+  rect.addEventListener('click', () => openDetail(name))
+}
+
+// A small lens for a box whose click already does something else.
+function lens(x, y, name) {
+  const g = el('g', { class: 'lens', transform: `translate(${x} ${y})` }, layers.hits)
+  el('circle', { cx: 0, cy: 0, r: 4.5 }, g)
+  el('path', { d: 'M3.2 3.2 L8 8' }, g)
+  el('circle', { cx: 0, cy: 0, r: 9, fill: 'transparent', stroke: 'none' }, g)
+  el('title', {}, g, 'click: show the gates inside')
+  g.addEventListener('click', event => {
+    event.stopPropagation()
+    openDetail(name)
+  })
+}
+
+// The gates of a decoder. Each input runs down as a pair of lines, true and
+// inverted, and every AND taps one line of each pair. ins and outs are the
+// labels.
+function decoderDetail(dec, { ins, outs, enable = 'en' }) {
+  const n = dec.inputs.length
+  const m = dec.outs.length
+  const nIn = n + (dec.enable ? 1 : 0)
+  const pairX = k => 20 + k * 40            // the true line of input k
+  const enX = pairX(n)
+  const gateX = (dec.enable ? enX : pairX(n - 1) + 18) + 24
+  const pitch = nIn >= 4 ? 30 : 28
+  const gateY = i => 52 + i * pitch
+  const bottom = gateY(m - 1) + 10
+  const w = gateX + GATE_W + 56
+  const h = bottom + 6
+  const draw = () => {
+    dec.inputs.forEach((input, k) => {
+      const x = pairX(k)
+      wire(input, `M${x} 4 V${bottom}`)
+      wire(input, `M${x} 16 H${x + 18}`)
+      dot(input, x, 16)
+      const pins = gate('not', x + 18, 16, 'd', dec.inverted[k])
+      wire(dec.inverted[k], `M${pins.out[0]} ${pins.out[1]} V${bottom}`)
+      label(x + 4, 11, ins[k], 'wl')
+    })
+    if (dec.enable) {
+      wire(dec.enable, `M${enX} 4 V${bottom}`)
+      label(enX + 4, 11, enable, 'wl')
+    }
+    dec.outs.forEach((out, i) => {
+      const pins = gate('and', gateX, gateY(i), 'r', out, { n: nIn, pitch: 6 })
+      pins.ins.forEach(([, y], j) => {
+        let x, source
+        if (dec.enable && j === 0) {
+          x = enX
+          source = dec.enable
+        } else {
+          const k = j - (dec.enable ? 1 : 0)
+          const one = (i >> (n - 1 - k)) & 1
+          x = one ? pairX(k) : pairX(k) + 18
+          source = one ? dec.inputs[k] : dec.inverted[k]
+        }
+        wire(source, `M${x} ${y} H${gateX}`)
+        dot(source, x, y)
+      })
+      wire(out, `M${pins.out[0]} ${pins.out[1]} H${pins.out[0] + 14}`)
+      label(pins.out[0] + 18, gateY(i) + 3, outs[i], 'wl')
+    })
+  }
+  return { w, h, draw }
 }
 
 // --- the bus: a ring of 8 wires. Wire 0 is the outside wire. ---------------
@@ -917,7 +1061,10 @@ for (const block of blocks) {
 // crosses another lane. The upper and lower blocks never overlap in height,
 // so they share the three lanes.
 const DEC = { y: 330, h: 190 }
-boxWithLabel(ALU.decX, DEC.y, ALU.decW, DEC.h, '3x8')
+const aluDecoder = decoder(aluNets.op, aluNets.select)
+zoomBox(boxWithLabel(ALU.decX, DEC.y, ALU.decW, DEC.h, '3x8'), 'alu')
+DETAILS.alu = { title: 'ALU decoder, 3 x 8', ...decoderDetail(aluDecoder,
+  { ins: ['op0', 'op1', 'op2'], outs: [...ALU_OPS, 'CMP'] }) }
 const decOutY = [8, 16, 24, 32, 158, 166, 174, 182].map(dy => DEC.y + dy)
 const SELECT_LANE = { AND: 0, OR: 1, XOR: 2, NOT: 0, SHR: 0, SHL: 1, ADD: 2 }
 blocks.forEach((block, k) => {
@@ -1026,8 +1173,22 @@ function irBranch(i, y, d) {
 
 // --- clock and stepper ---------------------------------------------------------
 const steps = ['s1', 's2', 's3', 's4', 's5', 's6'].map(net)
+// Seven stages. In the book the seventh resets the chain. This stepper wraps
+// on its own, so the seventh stage stays off.
+const stages = Array.from({ length: 7 }, (_, i) => net(`m${i + 1}`))
 const sequencer = circuit.add(new Sequencer(
-  { clk: net('clk'), clkE: net('clk e'), clkS: net('clk s'), steps }))
+  { clk: net('clk'), clkE: net('clk e'), clkS: net('clk s'), stages }))
+const notStages = stages.slice(1).map(stage => {
+  const n = net(`not ${stage.name}`)
+  circuit.add(new Gate('not', [stage], n))
+  return n
+})
+steps.forEach((step, k) => circuit.add(new Gate('and', [stages[k], notStages[k]], step)))
+const notClk = net('not clk')
+circuit.add(new Gate('not', [net('clk')], notClk))
+// The chain input is always on.
+const high = net('high')
+high.value = true
 
 // The clock sits left of the OR plane, so clk e and clk s reach the clock
 // gates with no crossing. The stepper sits above the rows; its steps run down.
@@ -1055,6 +1216,60 @@ const CLK_S = { y: 788 }
     sequencer.started = true
     refresh()
   })
+  lens(STEPPER.x + STEPPER.w - 16, STEPPER.y + STEPPER.h / 2 - 2, 'stepper')
+}
+
+// The stepper detail: a chain of latch pairs on clk and not clk, and a gate
+// per step. The stage nets light the pair that holds them.
+{
+  const STAGE = 66
+  const x0 = k => 48 + k * STAGE
+  const LATCH = { y: 44, w: 20, h: 28 }
+  const w = x0(6) + 96
+  const h = 168
+  DETAILS.stepper = { title: 'Stepper', w, h, draw: () => {
+    const clk = net('clk')
+    wire(clk, `M8 14 H${w - 8}`)
+    label(10, 10, 'clk', 'wl')
+    wire(clk, 'M20 14 V24 H23')
+    dot(clk, 20, 14)
+    const inv = gate('not', 20, 24, 'r', notClk)
+    wire(notClk, `M${inv.out[0]} 24 H${w - 8}`)
+    wire(high, `M8 58 H${x0(0)}`)
+    label(10, 54, '1', 'wl')
+    stages.forEach((stage, k) => {
+      const x = x0(k)
+      for (const dx of [0, 30]) {
+        bind(box(x + dx, LATCH.y, LATCH.w, LATCH.h), stage)
+        label(x + dx + LATCH.w / 2, LATCH.y + LATCH.h / 2, 'M', 'small mid')
+      }
+      wire(clk, `M${x + 10} 14 V${LATCH.y}`)
+      dot(clk, x + 10, 14)
+      wire(notClk, `M${x + 40} 24 V${LATCH.y}`)
+      dot(notClk, x + 40, 24)
+      wire(stage, `M${x + 20} 58 H${x + 30}`)
+      const next = k < 6 ? x0(k + 1) : x + 58
+      wire(stage, `M${x + 50} 58 H${next}`)
+      if (k === 6) {
+        label(x + 54, 54, 'reset', 'wl')
+        return
+      }
+      // Step k + 1 is this stage on and the next stage off.
+      const tap = x + 54
+      const gx = x + 88
+      wire(stage, `M${tap} 58 V104 H${gx - 4} V111`)
+      dot(stage, tap, 58)
+      // The NOT taps the next stage's drop and points back at this gate.
+      const nextTap = x0(k + 1) + 54
+      const notPins = gate('not', nextTap - 4, 92, 'l', notStages[k])
+      wire(stages[k + 1], `M${nextTap} 92 H${nextTap - 4}`)
+      dot(stages[k + 1], nextTap, 92)
+      wire(notStages[k], `M${notPins.out[0]} 92 H${gx + 4} V111`)
+      const pins = gate('and', gx, 111, 'd', steps[k], { pitch: 8 })
+      wire(steps[k], `M${pins.out[0]} ${pins.out[1]} V150`)
+      label(gx + 4, 160, steps[k].name, 'wl')
+    })
+  } }
 }
 wire(net('clk'), `M734 ${CLOCK.y} V306 H${STEPPER.x}`)
 label(738, 760, 'clk', 'wl')
@@ -1078,8 +1293,10 @@ const IDEC = { x: 1568, y: 808, w: 106, h: 34 }
 const notIr0 = net('not ir0')
 const classNets = CLASSES.map(net)
 circuit.add(new Gate('not', [irOut[0]], notIr0))
-circuit.add(new Decoder(irOut.slice(1, 4), classNets, notIr0))
-boxWithLabel(IDEC.x, IDEC.y, IDEC.w, IDEC.h, '3x8')
+const classDecoder = decoder(irOut.slice(1, 4), classNets, notIr0)
+zoomBox(boxWithLabel(IDEC.x, IDEC.y, IDEC.w, IDEC.h, '3x8'), 'class')
+DETAILS.class = { title: 'Instruction decoder, 3 x 8', ...decoderDetail(classDecoder,
+  { ins: ['ir1', 'ir2', 'ir3'], enable: '!ir0', outs: CLASSES }) }
 {
   // The enable is a NOT on bit 0, above the REG lanes. Its output enters the
   // decoder from the left side.
@@ -1360,14 +1577,17 @@ const REGS = { x: 700, pitch: 269, y: 58, gateY: 190, orY: 150 }
 const LANE = { a: j => 233 + j * 5, b: j => 204 + j * 5, reg: i => 276 + i * 5, turnX: i => 1860 + i * 5 }
 // Decoder B sits higher and to the right, so its lines pass over decoder A
 // and the IR wires into A pass under B's lines.
+const REG_NAMES = ['A', 'B', 'C', 'D']
 const DEC_A = { x: 1670, y: 228, w: 48, h: 23 }
 const DEC_B = { x: 1726, y: 199, w: 48, h: 27 }
 const decSrc = circuit.word('src reg', 4)
 const decDst = circuit.word('dst reg', 4)
-circuit.add(new Decoder(irOut.slice(4, 6), decSrc))
-circuit.add(new Decoder(irOut.slice(6, 8), decDst))
-boxWithLabel(DEC_A.x, DEC_A.y, DEC_A.w, DEC_A.h, 'SRC 2x4', 'small mid')
-boxWithLabel(DEC_B.x, DEC_B.y, DEC_B.w, DEC_B.h, 'DST 2x4', 'small mid')
+const srcDecoder = decoder(irOut.slice(4, 6), decSrc)
+const dstDecoder = decoder(irOut.slice(6, 8), decDst)
+zoomBox(boxWithLabel(DEC_A.x, DEC_A.y, DEC_A.w, DEC_A.h, 'SRC 2x4', 'small mid'), 'src')
+zoomBox(boxWithLabel(DEC_B.x, DEC_B.y, DEC_B.w, DEC_B.h, 'DST 2x4', 'small mid'), 'dst')
+DETAILS.src = { title: 'SRC decoder, 2 x 4', ...decoderDetail(srcDecoder, { ins: ['ir4', 'ir5'], outs: REG_NAMES }) }
+DETAILS.dst = { title: 'DST decoder, 2 x 4', ...decoderDetail(dstDecoder, { ins: ['ir6', 'ir7'], outs: REG_NAMES }) }
 // Bits 4 to 7 jog right above the stepper and rise into the decoders. Bit 4
 // turns first and highest, so no jog crosses another bit's wire.
 const IR_JOG_Y = i => 254 + (i - 4) * 5
@@ -1399,7 +1619,6 @@ decDst.forEach((n, j) => wire(n, decLane(DEC_B, LANE.b(j), gateXs(j).b + 3)))
 // The registers are named A to D, the way an 8-bit machine names them. The
 // two operand fields of an instruction are SRC and DST, so the field names
 // never collide with a register name.
-const REG_NAMES = ['A', 'B', 'C', 'D']
 for (let n = 0; n < 4; n++) {
   const px = REGS.x + n * REGS.pitch
   const e = net(`${REG_NAMES[n]} e`)
@@ -1814,7 +2033,10 @@ function assemble(source) {
 
 // --- listings to start a lecture from --------------------------------------
 
-const SAMPLE = `; 5 x 5 by repeated addition. The product lands in A.
+// name -> { title, text }. The name is the ?prog= value, the title is the
+// entry in the drop-down.
+const PROGRAMS = {
+  multiply: { title: 'Multiply by adding', text: `; 5 x 5 by repeated addition. The product lands in A.
         MOV A, 0        ; the product
         MOV B, 5        ; the multiplicand
         MOV C, 0        ; how many times it has been added
@@ -1824,21 +2046,105 @@ loop:   ADD A, B        ; A = A + B
         CMP C, B        ; five times yet?
         JE  done
         JMP loop
-done:   HLT`
+done:   HLT` },
 
-const PROGRAMS = {
-  and: `; AND keeps only the bits that are on in both registers.
+  shift: { title: 'Multiply by shifting', text: `; 13 x 10 by shifting: 13 x 8 + 13 x 2. The product lands in A.
+        MOV A, 13
+        MOV B, 13
+        SHL A           ; x 2
+        SHL A           ; x 4
+        SHL A           ; x 8
+        SHL B           ; x 2
+        ADD A, B        ; 104 + 26
+        HLT` },
+
+  countdown: { title: 'Count down', text: `; Count down from 10. The machine has no subtract, so add -1.
+        MOV A, 10
+        MOV B, 0xFF     ; -1 in two's complement
+        MOV C, 0
+loop:   ADD A, B        ; A = A - 1
+        CMP A, C        ; zero yet?
+        JE  done
+        JMP loop
+done:   HLT` },
+
+  masks: { title: 'Bit masks', text: `; AND clears bits, OR sets bits, XOR flips bits, NOT flips them all.
+        MOV D, 0b00001111   ; the mask
         MOV A, 0b11001010
-        MOV B, 0b01101100
-        AND A, B
-        HLT`,
-  sample: SAMPLE,
+        AND A, D            ; A keeps the low four bits
+        MOV B, 0b11001010
+        OR  B, D            ; B sets the low four bits
+        MOV C, 0b11001010
+        XOR C, D            ; C flips the low four bits
+        NOT D               ; D is the inverted mask
+        HLT` },
+
+  sum: { title: 'Sum a table', text: `; Add up the bytes in a table. The sum lands in A.
+        MOV A, 0
+        MOV B, table    ; a pointer into the table
+loop:   MOV C, [B]      ; the byte at the pointer
+        ADD A, C
+        MOV D, 1
+        ADD B, D        ; the pointer moves on
+        MOV D, end
+        CMP B, D        ; past the table?
+        JE  done
+        JMP loop
+done:   HLT
+table:  DB 3, 7, 11, 2, 9
+end:` },
+
+  max: { title: 'Largest in a table', text: `; The largest byte in a table lands in A.
+        MOV A, 0
+        MOV B, table    ; a pointer into the table
+loop:   MOV C, [B]
+        CMP A, C
+        JGE next        ; A is the larger already
+        MOV A, [B]      ; a new largest
+next:   MOV D, 1
+        ADD B, D
+        MOV D, end
+        CMP B, D
+        JE  done
+        JMP loop
+done:   HLT
+table:  DB 4, 19, 7, 42, 3
+end:` },
+
+  fibonacci: { title: 'Fibonacci', text: `; Fibonacci numbers, stored from 0x80 up. A and B hold the last two.
+        MOV A, 0
+        MOV B, 1
+        MOV C, 0x80     ; where the next number goes
+loop:   MOV [C], A
+        ADD A, B        ; A = A + B
+        XOR A, B        ; three XORs swap A and B,
+        XOR B, A        ; since the machine has no
+        XOR A, B        ; register to register move
+        MOV D, 1
+        ADD C, D
+        MOV D, 0x8D
+        CMP C, D        ; 13 numbers yet?
+        JE  done
+        JMP loop
+done:   HLT` },
+
+  fill: { title: 'Fill memory', text: `; Fill 0xF0 to 0xFF with a pattern. The pointer wraps to 0 at the end.
+        MOV A, 0xAA
+        MOV B, 0xF0
+loop:   MOV [B], A
+        MOV D, 1
+        ADD B, D        ; 0xFF + 1 wraps to 0
+        MOV D, 0
+        CMP B, D
+        JE  done
+        JMP loop
+done:   HLT` },
 }
 
-const HELP = `A guide to writing programs for this machine.
+const HELP = `The SDS-1 is an emulator for a slightly modified Scott CPU, an 8-Bit learning CPU
 
-Registers    A, B, C and D. Each one holds a byte.
-Numbers      42 is decimal, 0x2A is hex, 0b101010 is binary. All the same.
+Registers    Four general purpose registers called A, B, C and D. Each one holds a byte.
+Numbers      42 is decimal, 0x2A is hex, 0b101010 is binary
 Labels       Write "name:" in front of a line, then use the name as an address.
 Comments     Everything after a ";" is ignored.
 Operands     A comma between two operands is optional.
@@ -1874,6 +2180,7 @@ With the clock stopped:
   click a register bit or a memory bit to flip it
   click a wire to hold it on, and click it again to let it go
   click the clock for its next phase, and the stepper for its next step
+  click a decoder, or the lens on the stepper, to see the gates inside
 `
 // ---------------------------------------------------------------------------
 // 7. The console: the keys, the run loop and the assembler panel
@@ -1881,6 +2188,50 @@ With the clock stopped:
 
 const $ = id => document.getElementById(id)
 let timer = null
+
+/* --- details ------------------------------------------------------------- */
+let detailNodes = []
+
+function closeDetail() {
+  for (const [n, node] of detailNodes) n.els.splice(n.els.indexOf(node), 1)
+  detailNodes = []
+  $('detail-svg').replaceChildren()
+}
+
+function openDetail(name) {
+  closeDetail()
+  const detail = DETAILS[name]
+  const svg = $('detail-svg')
+  svg.setAttribute('viewBox', `0 0 ${detail.w} ${detail.h}`)
+  $('detail-title').textContent = detail.title
+  detailNodes = drawInto(svg, detail.draw)
+  const dialog = $('detail')
+  // About two screen pixels per drawing unit, within the desk.
+  dialog.style.width = `${Math.min(detail.w * 2, 760)}px`
+  if (!dialog.open) dialog.show()
+}
+
+$('detail').addEventListener('close', closeDetail)
+{
+  // The title bar drags the detail, so it can move off what it covers.
+  const dialog = $('detail')
+  const bar = dialog.querySelector('.unit-title')
+  let grab = null
+  bar.addEventListener('pointerdown', event => {
+    if (event.target.closest('button')) return
+    const rect = dialog.getBoundingClientRect()
+    grab = { dx: event.clientX - rect.left, dy: event.clientY - rect.top }
+    bar.setPointerCapture(event.pointerId)
+  })
+  bar.addEventListener('pointermove', event => {
+    if (!grab) return
+    dialog.style.left = `${event.clientX - grab.dx}px`
+    dialog.style.top = `${event.clientY - grab.dy}px`
+    dialog.style.right = 'auto'
+    dialog.style.transform = 'none'
+  })
+  bar.addEventListener('pointerup', () => { grab = null })
+}
 
 function showStatus(text) {
   const phase = ['idle', 'enable', 'enable + set', 'enable'][sequencer.phase]
@@ -2175,8 +2526,16 @@ $('run').onclick = run
 $('stop').onclick = stop
 $('reset').onclick = reset
 $('assemble').onclick = assembleAndLoad
-$('sample').onclick = () => {
-  source.set(SAMPLE)
+for (const [name, program] of Object.entries(PROGRAMS)) {
+  const option = document.createElement('option')
+  option.value = name
+  option.textContent = program.title
+  $('programs').append(option)
+}
+$('programs').onchange = () => {
+  const program = PROGRAMS[$('programs').value]
+  if (!program) return
+  source.set(program.text)
   assembleAndLoad()
 }
 $('clear-ram').onclick = () => {
@@ -2198,9 +2557,10 @@ $('source').addEventListener('input', showEditorState)
 
 const params = new URLSearchParams(location.search)
 if (params.has('speed')) $('speed').value = params.get('speed')
-const preset = PROGRAMS[params.get('prog')?.toLowerCase()]
-if (preset) {
-  $('source').value = preset
+const preset = params.get('prog')?.toLowerCase()
+if (PROGRAMS[preset]) {
+  $('programs').value = preset
+  $('source').value = PROGRAMS[preset].text
   assembleAndLoad()
 }
 startEditor()
